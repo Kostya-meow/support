@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Support Desk — База знаний</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="knowledge-body">
+    <div class="knowledge-layout">
+        <header class="knowledge-header">
+            <div class="knowledge-header-content">
+                <h1>Support Desk</h1>
+                <nav class="knowledge-nav">
+                    <a href="/" class="nav-link">← Вернуться к заявкам</a>
+                </nav>
+            </div>
+        </header>
+        
+        <main class="knowledge-main">
+            <div class="knowledge-card">
+                <div class="knowledge-card-header">
+                    <h2>База знаний</h2>
+                    <p class="knowledge-subtitle">Загрузите Excel-файл с вопросами и ответами. Минимум два столбца: вопросы и ответы.</p>
+                </div>
+
+                <div class="knowledge-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Текущих записей:</span>
+                        <strong class="stat-value" id="entryCount">{{ entry_count }}</strong>
+                    </div>
+                </div>
+
+                <form id="uploadForm" class="knowledge-form" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="fileInput" class="form-label">Файл Excel</label>
+                        <input id="fileInput" name="file" type="file" accept=".xlsx,.xls" required class="form-input">
+                    </div>
+                    <button type="submit" class="form-button">Загрузить и обновить базу</button>
+                </form>
+
+                <div id="uploadStatus" class="upload-status"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const uploadForm = document.getElementById('uploadForm');
+        const statusLabel = document.getElementById('uploadStatus');
+        const entryCountLabel = document.getElementById('entryCount');
+        const fileInput = document.getElementById('fileInput');
+
+        uploadForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!fileInput.files.length) {
+                statusLabel.textContent = 'Выберите файл перед загрузкой.';
+                statusLabel.classList.remove('success', 'loading');
+                statusLabel.classList.add('error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            statusLabel.textContent = 'Идёт обработка файла...';
+            statusLabel.classList.remove('error', 'success');
+            statusLabel.classList.add('loading');
+
+            try {
+                const response = await fetch('/admin/knowledge/upload', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin',
+                });
+
+                if (!response.ok) {
+                    const detail = await response.json().catch(() => ({}));
+                    throw new Error(detail.detail || 'Не удалось обработать файл');
+                }
+
+                const data = await response.json();
+                statusLabel.textContent = `Готово! Загружено записей: ${data.entries}`;
+                statusLabel.classList.remove('error', 'loading');
+                statusLabel.classList.add('success');
+                fileInput.value = '';
+                await refreshStats();
+            } catch (error) {
+                statusLabel.textContent = error.message;
+                statusLabel.classList.remove('success', 'loading');
+                statusLabel.classList.add('error');
+            }
+        });
+
+        async function refreshStats() {
+            try {
+                const response = await fetch('/api/knowledge/stats', {
+                    credentials: 'same-origin',
+                });
+                if (!response.ok) {
+                    return;
+                }
+                const data = await response.json();
+                entryCountLabel.textContent = data.total_entries;
+            } catch (error) {
+                console.error('Не удалось обновить статистику', error);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Support Desk — Вход</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="login-body">
+    <main class="login-card">
+        <h1>Support Desk</h1>
+        <p class="login-subtitle">Введите данные администратора</p>
+        <form id="loginForm" class="login-form" autocomplete="off">
+            <label for="username">Логин</label>
+            <input id="username" name="username" type="text" required autofocus>
+
+            <label for="password">Пароль</label>
+            <input id="password" name="password" type="password" required>
+
+            <p id="loginError" class="login-error hidden"></p>
+            <button type="submit">Войти</button>
+        </form>
+    </main>
+
+    <script>
+        const loginForm = document.getElementById('loginForm');
+        const errorLabel = document.getElementById('loginError');
+
+        loginForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const username = loginForm.username.value.trim();
+            const password = loginForm.password.value;
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                });
+                if (!response.ok) {
+                    const detail = await response.json().catch(() => ({}));
+                    throw new Error(detail.detail || 'Не удалось авторизоваться');
+                }
+                window.location.href = '/';
+            } catch (error) {
+                errorLabel.textContent = error.message;
+                errorLabel.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
