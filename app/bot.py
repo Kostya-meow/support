@@ -112,12 +112,12 @@ def create_dispatcher(
                 for i, chat_msg in enumerate(chat_history):
                     try:
                         sender = USER_SENDER if chat_msg.is_user else BOT_SENDER
+                        # Для новых сообщений не передавать created_at, чтобы использовалось текущее время
                         await crud.add_message(
                             session,
                             ticket_id=ticket.id,
                             sender=sender,
                             text=chat_msg.message,
-                            created_at=chat_msg.timestamp,
                             is_system=False
                         )
                         print(f"BOT DEBUG: Added history message {i+1}/{len(chat_history)}: {sender} - {chat_msg.message[:30]}...")
@@ -250,11 +250,9 @@ def create_dispatcher(
                 # Сохраняем расшифровку только для оператора
                 ticket_id, has_ticket = await _persist_message(message, transcribed_text)
 
-                if has_ticket and ticket_id:
-                    # В чат оператора отправляем только текст
-                    await _send_bot_message(ticket_id, transcribed_text)
-                else:
-                    # Для пользователя просто ответ бота
+                # Если есть заявка, сообщение уже сохранено как от пользователя — ничего не отправляем от бота
+                # Если нет заявки — просто ответить пользователю
+                if not has_ticket or not ticket_id:
                     await _answer_with_rag_only(message, transcribed_text)
                 
             finally:
@@ -347,7 +345,6 @@ def create_dispatcher(
                             ticket_id=ticket.id,
                             sender=sender,
                             text=chat_msg.message,
-                            created_at=chat_msg.timestamp,
                             is_system=False
                         )
                         print(f"BOT DEBUG: Added history message {i+1}: [{sender}] {chat_msg.message[:30]}...")

@@ -74,8 +74,7 @@ async def add_message(
         telegram_message_id=telegram_message_id,
         is_system=is_system,
     )
-    if created_at:
-        message.created_at = created_at
+    # Не передавать created_at, всегда использовать серверное время
     session.add(message)
     conversation = await session.get(models.Conversation, conversation_id)
     if conversation:

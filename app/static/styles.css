@@ -1,4 +1,38 @@
-﻿html, body {
+﻿/* Центрирование и стиль кнопки загрузки базы знаний */
+#uploadButton.primary-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 32px auto 0 auto;
+    font-size: 1.15rem;
+    padding: 16px 32px;
+    min-width: 320px;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.10);
+}
+#uploadButton .button-icon {
+    font-size: 1.5em;
+    margin-right: 10px;
+}
+/* Красивая кнопка для загрузки и обновления базы */
+.upload-update-btn {
+    background: linear-gradient(90deg, #3b82f6 0%, #10b981 100%);
+    color: #fff;
+    border: none;
+    border-radius: 0.75rem;
+    padding: 16px 32px;
+    font-size: 1.2rem;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+    margin: 0 auto;
+    display: block;
+}
+.upload-update-btn:hover {
+    background: linear-gradient(90deg, #2563eb 0%, #059669 100%);
+    transform: translateY(-2px) scale(1.04);
+}
+html, body {
     height: 100%;
 }
 
@@ -182,6 +216,7 @@ body {
 .link-button.primary:hover {
     background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
     border-color: #1d4ed8;
+    transform: none;
 }
 
 /* Стили для вкладок */

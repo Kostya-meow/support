@@ -153,11 +153,12 @@ async def add_message(
     if created_at:
         message.created_at = created_at
     session.add(message)
-    
+    await session.commit()
     # Обновляем время последнего обновления заявки
     ticket = await session.get(models.Ticket, ticket_id)
     if ticket:
         ticket.updated_at = datetime.utcnow()
+        await session.commit()
     
     await session.commit()
     await session.refresh(message)
