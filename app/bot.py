@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import os
+import tempfile
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart
@@ -168,6 +170,11 @@ def create_dispatcher(
     async def _answer_with_rag_only(message: Message, user_text: str) -> None:
         """Отвечает пользователю через RAG без создания заявки"""
         try:
+            # Отправляем typing action
+            try:
+                await message.bot.send_chat_action(message.chat.id, 'typing')
+            except Exception:
+                pass
             # Используем chat_id как temporary conversation_id для RAG
             conversation_id = message.chat.id
             rag_result: RAGResult = await asyncio.to_thread(
@@ -207,6 +214,57 @@ def create_dispatcher(
             "Здравствуйте! Опишите проблему — постараюсь помочь. Если ответ не подойдёт, можно позвать оператора."
         )
         await message.answer(greeting, reply_markup=REQUEST_OPERATOR_KEYBOARD)
+
+    @router.message(F.voice)
+    async def on_voice(message: Message) -> None:
+        """Обработчик голосовых сообщений"""
+        try:
+            # Получаем файл голосового сообщения
+            voice = message.voice
+            if not voice:
+                await message.answer("Не удалось получить голосовое сообщение.")
+                return
+            
+            # Уведомляем пользователя о начале обработки
+            processing_msg = await message.answer("🎤 Обрабатываю голосовое сообщение...")
+            
+            # Получаем Bot из параметров dispatcher
+            bot = message.bot
+            
+            # Скачиваем файл во временную папку
+            with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as temp_file:
+                await bot.download(voice.file_id, temp_file.name)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Преобразуем голос в текст
+                transcribed_text = await rag_service.speech_to_text.transcribe_audio(temp_file_path)
+                
+                if not transcribed_text:
+                    await processing_msg.edit_text("❌ Не удалось распознать речь. Попробуйте еще раз или напишите текстом.")
+                    return
+                
+                # Удаляем сообщение "Обрабатываю..."
+                await processing_msg.delete()
+
+                # Сохраняем расшифровку только для оператора
+                ticket_id, has_ticket = await _persist_message(message, transcribed_text)
+
+                if has_ticket and ticket_id:
+                    # В чат оператора отправляем только текст
+                    await _send_bot_message(ticket_id, transcribed_text)
+                else:
+                    # Для пользователя просто ответ бота
+                    await _answer_with_rag_only(message, transcribed_text)
+                
+            finally:
+                # Удаляем временный файл
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+                    
+        except Exception as e:
+            logger.error(f"Error processing voice message: {e}")
+            await message.answer("❌ Произошла ошибка при обработке голосового сообщения. Попробуйте написать текстом.")
 
     @router.message(F.text)
     async def on_text(message: Message) -> None:

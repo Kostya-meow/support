@@ -9,27 +9,38 @@
 <body>
     <div class="layout">
         <aside class="sidebar">
-            <div class="sidebar-header">
-                <h1>Support Desk</h1>
-                <div class="sidebar-actions">
-                    <a href="/admin/knowledge" class="link-button">База знаний</a>
-                    <form id="logoutForm" method="post" action="/logout">
-                        <button type="submit" class="link-button">Выйти</button>
-                    </form>
+            <div class="sidebar-content">
+                <div class="sidebar-header">
+                    <h1>Support Desk</h1>
                 </div>
+                
+                <div class="sidebar-section">
+                    <div class="sidebar-section-title">Управление</div>
+                    <a href="/dashboard" class="link-button primary">📊 Дашборд</a>
+                    <a href="/admin/knowledge" class="link-button">📚 База знаний</a>
+                </div>
+                
+                <!-- Вкладки -->
+                <div class="sidebar-section">
+                    <div class="sidebar-section-title">Заявки</div>
+                    <div class="tabs">
+                        <button id="activeTab" class="tab-button active" data-tab="active">
+                            Активные
+                        </button>
+                        <button id="archivedTab" class="tab-button" data-tab="archived">
+                            Архив
+                        </button>
+                    </div>
+                </div>
+                
+                <ul id="conversations" class="conversation-list"></ul>
             </div>
             
-            <!-- Вкладки -->
-            <div class="tabs">
-                <button id="activeTab" class="tab-button active" data-tab="active">
-                    Активные заявки
-                </button>
-                <button id="archivedTab" class="tab-button" data-tab="archived">
-                    Архив заявок
-                </button>
+            <div class="sidebar-footer">
+                <form id="logoutForm" method="post" action="/logout">
+                    <button type="submit" class="link-button logout">🚪 Выйти</button>
+                </form>
             </div>
-            
-            <ul id="conversations" class="conversation-list"></ul>
         </aside>
         <main class="chat">
             <section id="placeholder" class="placeholder">
@@ -40,6 +51,17 @@
                     <h2 id="chatTitle">Заявка</h2>
                     <button id="finishButton" type="button" class="secondary-button">Завершить заявку</button>
                 </header>
+                
+                <!-- Панель с саммари -->
+                <div id="summaryPanel" class="summary-panel">
+                    <div class="summary-header">
+                        <span class="summary-title">📋 Краткое содержание</span>
+                    </div>
+                    <div id="summaryContent" class="summary-content">
+                        <div class="summary-loading">Загрузка саммари...</div>
+                    </div>
+                </div>
+                
                 <div id="messages" class="messages"></div>
                 <form id="replyForm" class="reply-form" autocomplete="off">
                     <div class="message-input-container">
@@ -66,6 +88,8 @@
         const finishButton = document.getElementById('finishButton');
         const activeTab = document.getElementById('activeTab');
         const archivedTab = document.getElementById('archivedTab');
+        const summaryPanel = document.getElementById('summaryPanel');
+        const summaryContent = document.getElementById('summaryContent');
 
         const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
         let conversationSocket = null;
@@ -312,6 +336,7 @@
             
             renderConversations(conversations);
             connectChatSocket(conversationId);
+            loadTicketSummary(conversationId);
             await loadMessages(conversationId);
         }
 
@@ -476,6 +501,28 @@
                 renderConversations(conversations);
             }
         });
+
+        // Функции для работы с саммари
+        async function loadTicketSummary(conversationId) {
+            summaryContent.innerHTML = '<div class="summary-loading">Загрузка саммари...</div>';
+            
+            try {
+                const response = await fetch(`/api/conversations/${conversationId}/summary`);
+                if (!response.ok) {
+                    throw new Error('Failed to load summary');
+                }
+                
+                const data = await response.json();
+                displaySummary(data.summary);
+            } catch (error) {
+                console.error('Error loading summary:', error);
+                summaryContent.innerHTML = '<div class="summary-error">Ошибка загрузки саммари</div>';
+            }
+        }
+
+        function displaySummary(summary) {
+            summaryContent.innerHTML = `<div class="summary-text">${summary}</div>`;
+        }
 
         loadConversations();
         initConversationsSocket();

@@ -79,6 +79,12 @@ unsupported_message_response:
 start_message: |
   Привет! Я цифровая помощница корпоративной IT-поддержки. Помогаю с доступами, паролями, VPN, оборудованием и сервисами компании. Опишите проблему — постараюсь решить. Если ответ не подойдёт, можно позвать оператора.
 
+# Speech-to-Text настройки
+speech:
+  enabled: true
+  language: "ru"  # Язык распознавания
+  model: "whisper-1"  # Модель OpenAI Whisper
+
 session_ttl: 86400
 max_active_sessions: 100
 cleanup_interval: 360

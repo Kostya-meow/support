@@ -47,7 +47,6 @@ def _preprocess(text: str, removal: set[str] | None = None) -> str:
 
 
 @dataclass
-@dataclass
 class ChatMessage:
     """Сообщение в чате для временного хранения"""
     message: str
@@ -77,6 +76,74 @@ class ToxicityClassifier:
         logits = outputs.logits
         probs = torch.softmax(logits, dim=1)
         return probs[0][1].item()
+
+
+class SpeechToTextService:
+    def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
+        """Инициализация сервиса speech-to-text"""
+        import speech_recognition as sr
+        self.recognizer = sr.Recognizer()
+    
+    async def transcribe_audio(self, audio_file_path: str, language: str = "ru-RU") -> str:
+        """
+        Преобразование аудио в текст с помощью Google Speech Recognition
+        
+        Args:
+            audio_file_path: Путь к аудио файлу
+            language: Язык аудио (по умолчанию русский)
+            
+        Returns:
+            Транскрибированный текст
+        """
+        import speech_recognition as sr
+        import tempfile
+        import os
+        wav_file_path = None
+        try:
+            # Попытка прямого чтения (если вдруг WAV)
+            try:
+                with sr.AudioFile(audio_file_path) as source:
+                    audio_data = self.recognizer.record(source)
+                text = self.recognizer.recognize_google(audio_data, language=language)
+                return text.strip()
+            except Exception as direct_error:
+                logger.info(f"Direct read failed: {direct_error}, пробуем конвертацию через ffmpeg...")
+                # Конвертация через ffmpeg (imageio_ffmpeg)
+                try:
+                    import imageio_ffmpeg
+                    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+                except Exception as ffmpeg_err:
+                    logger.error(f"FFmpeg not found: {ffmpeg_err}")
+                    return "Для распознавания голосовых сообщений требуется ffmpeg. Попробуйте отправить текст или WAV-файл."
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as wav_temp:
+                    wav_file_path = wav_temp.name
+                ffmpeg_cmd = [
+                    ffmpeg_path, '-y', '-i', audio_file_path,
+                    '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+                    wav_file_path
+                ]
+                import subprocess
+                result = subprocess.run(ffmpeg_cmd, capture_output=True)
+                if result.returncode != 0:
+                    logger.error(f"FFmpeg conversion failed: {result.stderr.decode(errors='ignore')}")
+                    return "Ошибка конвертации аудио. Попробуйте записать голосовое снова или отправьте текст."
+                try:
+                    with sr.AudioFile(wav_file_path) as source:
+                        audio_data = self.recognizer.record(source)
+                    text = self.recognizer.recognize_google(audio_data, language=language)
+                    return text.strip()
+                except Exception as recog_error:
+                    logger.error(f"SpeechRecognition error after ffmpeg: {recog_error}")
+                    return "Не удалось распознать голосовое сообщение. Попробуйте записать снова или отправьте текст."
+        except Exception as e:
+            logger.error(f"SpeechRecognition error: {e}")
+            return "Не удалось распознать голосовое сообщение. Отправьте текст или WAV-файл."
+        finally:
+            if wav_file_path and os.path.exists(wav_file_path):
+                try:
+                    os.unlink(wav_file_path)
+                except Exception as del_err:
+                    logger.warning(f"Не удалось удалить временный файл: {del_err}")
 
 
 class RAGService:
@@ -154,6 +221,12 @@ class RAGService:
         self.histories: dict[int, list[dict[str, str]]] = defaultdict(list)
         # Хранение временной истории чатов (до создания заявки)
         self.chat_histories: dict[int, list[ChatMessage]] = defaultdict(list)
+        
+        # Инициализация Speech-to-Text сервиса
+        self.speech_to_text = SpeechToTextService(api_key=api_key, base_url=base_url)
+        
+        # Кеш для саммари тикетов (простой in-memory кеш)
+        self._summary_cache: dict[int, str] = {}
 
         self._bm25: BM25Okapi | None = None
         self._bm25_corpus: list[list[str]] = []
@@ -529,6 +602,70 @@ class RAGService:
             logging.warning(f"Failed to save bot message to chat history: {e}")
         
         return RAGResult(final_answer, False, filter_info)
+    
+    async def generate_ticket_summary(self, messages: list, ticket_id: int = None) -> str:
+        """
+        Генерирует краткое саммари тикета в 1-2 предложения для операторов
+        
+        Args:
+            messages: Список сообщений тикета (объекты Message из БД)
+            ticket_id: ID тикета для кеширования (опционально)
+            
+        Returns:
+            Краткое описание проблемы
+        """
+        # Проверяем кеш если есть ticket_id
+        if ticket_id and ticket_id in self._summary_cache:
+            return self._summary_cache[ticket_id]
+            
+        if not messages:
+            summary = "Нет сообщений в тикете"
+            if ticket_id:
+                self._summary_cache[ticket_id] = summary
+            return summary
+        
+        # Собираем историю переписки
+        conversation = []
+        for msg in messages:
+            role = "Пользователь" if msg.sender == "user" else ("Бот" if msg.sender == "bot" else "Оператор")
+            conversation.append(f"{role}: {msg.text}")
+        
+        conversation_text = "\n".join(conversation)
+        
+        summary_prompt = f"""Проанализируй переписку в службе поддержки и создай краткое саммари в 1-2 предложения для оператора.
+Саммари должно отражать суть проблемы пользователя и текущий статус обращения.
+
+Переписка:
+{conversation_text}
+
+Краткое саммари:"""
+
+        try:
+            response = self.llm_client.chat.completions.create(
+                model=self.llm_model,
+                messages=[{"role": "user", "content": summary_prompt}],
+                max_tokens=150,
+                temperature=0.3
+            )
+            
+            summary = response.choices[0].message.content.strip()
+            if self.strip_thinking_tags_enabled:
+                summary = _strip_thinking_tags(summary)
+            
+            result = summary or "Не удалось создать саммари"
+            
+            # Сохраняем в кеш если есть ticket_id
+            if ticket_id:
+                self._summary_cache[ticket_id] = result
+                
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error generating ticket summary: {e}")
+            error_summary = "Ошибка при создании саммари"
+            if ticket_id:
+                self._summary_cache[ticket_id] = error_summary
+            return error_summary
 
 
 __all__ = ["RAGService", "RAGResult"]

@@ -143,6 +143,39 @@ async def knowledge_admin(request: Request):
     )
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    if not auth.is_authenticated_request(request):
+        return RedirectResponse(url="/login", status_code=303)
+    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+
+@app.get("/api/dashboard/stats")
+async def get_dashboard_stats(
+    request: Request,
+    session: AsyncSession = Depends(get_tickets_session),
+    _: None = Depends(auth.ensure_api_auth),
+):
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Получаем статистику
+    tickets_stats = await crud.get_tickets_stats(session)
+    response_time_stats = await crud.get_response_time_stats(session)
+    daily_stats = await crud.get_daily_tickets_stats(session, days=30)
+    
+    # Статистика по базе знаний
+    async with KnowledgeSessionLocal() as knowledge_session:
+        knowledge_count = await crud.count_knowledge_entries(knowledge_session)
+    
+    return {
+        "tickets": tickets_stats,
+        "response_times": response_time_stats,
+        "daily_tickets": daily_stats,
+        "knowledge_entries": knowledge_count
+    }
+
+
 @app.post("/admin/knowledge/upload")
 async def upload_knowledge(
     request: Request,
@@ -315,6 +348,52 @@ async def api_reply(
     await manager.broadcast_message(conversation_id, _serialize_message(new_message))
 
     return new_message
+
+
+@app.post("/api/conversations/{conversation_id}/read")
+async def mark_conversation_read(
+    conversation_id: int,
+    request: Request,
+    _: None = Depends(auth.ensure_api_auth),
+) -> dict:
+    """Отметить заявку как прочитанную (заглушка для совместимости)"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    return {"success": True}
+
+
+@app.get("/api/conversations/{conversation_id}/summary")
+async def get_ticket_summary(
+    conversation_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_tickets_session),
+    _: None = Depends(auth.ensure_api_auth),
+) -> dict:
+    """Получить краткое саммари тикета для оператора"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Получаем тикет с сообщениями через специальную функцию
+    ticket_with_messages = await crud.get_ticket_with_messages(session, conversation_id)
+    if ticket_with_messages is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    ticket, messages = ticket_with_messages
+    
+    # Получаем RAG сервис
+    rag_service: RAGService = request.app.state.rag
+    
+    # Генерируем саммари
+    summary = await rag_service.generate_ticket_summary(messages, ticket_id=conversation_id)
+    
+    return {
+        "ticket_id": conversation_id,
+        "summary": summary,
+        "status": ticket.status,
+        "created_at": ticket.created_at.isoformat(),
+        "message_count": len(messages)
+    }
 
 
 @app.websocket("/ws/conversations")

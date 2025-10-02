@@ -17,4 +17,7 @@ rank-bm25
 langchain-community
 nltk
 transformers
+SpeechRecognition
+pydub
+imageio[ffmpeg]
 

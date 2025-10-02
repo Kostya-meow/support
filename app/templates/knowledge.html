@@ -3,44 +3,91 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Support Desk — База знаний</title>
+    <title>База знаний - Support Desk</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body class="knowledge-body">
-    <div class="knowledge-layout">
-        <header class="knowledge-header">
-            <div class="knowledge-header-content">
-                <h1>Support Desk</h1>
-                <nav class="knowledge-nav">
-                    <a href="/" class="nav-link">← Вернуться к заявкам</a>
-                </nav>
+<body>
+    <div class="layout">
+        <!-- Сайдбар с навигацией -->
+        <aside class="sidebar">
+            <div class="sidebar-content">
+                <div class="sidebar-header">
+                    <h1>Support Desk</h1>
+                </div>
+                
+                <div class="sidebar-section">
+                    <div class="sidebar-section-title">Навигация</div>
+                    <nav class="sidebar-nav">
+                        <a href="/" class="link-button">📋 Заявки</a>
+                        <a href="/dashboard" class="link-button">📊 Дашборд</a>
+                        <a href="/admin/knowledge" class="link-button active primary">📚 База знаний</a>
+                    </nav>
+                </div>
             </div>
-        </header>
-        
-        <main class="knowledge-main">
-            <div class="knowledge-card">
-                <div class="knowledge-card-header">
-                    <h2>База знаний</h2>
-                    <p class="knowledge-subtitle">Загрузите Excel-файл с вопросами и ответами. Минимум два столбца: вопросы и ответы.</p>
-                </div>
-
-                <div class="knowledge-stats">
-                    <div class="stat-item">
-                        <span class="stat-label">Текущих записей:</span>
-                        <strong class="stat-value" id="entryCount">{{ entry_count }}</strong>
-                    </div>
-                </div>
-
-                <form id="uploadForm" class="knowledge-form" enctype="multipart/form-data">
-                    <div class="form-group">
-                        <label for="fileInput" class="form-label">Файл Excel</label>
-                        <input id="fileInput" name="file" type="file" accept=".xlsx,.xls" required class="form-input">
-                    </div>
-                    <button type="submit" class="form-button">Загрузить и обновить базу</button>
+            
+            <div class="sidebar-footer">
+                <form method="post" action="/logout">
+                    <button type="submit" class="link-button logout">🚪 Выйти</button>
                 </form>
-
-                <div id="uploadStatus" class="upload-status"></div>
             </div>
+        </aside>
+        
+        <!-- Основной контент -->
+        <main class="chat">
+            <section class="chat-panel">
+                <header class="chat-panel__header">
+                    <h2>📚 База знаний</h2>
+                    <div class="knowledge-stats-inline">
+                        <span class="stat-badge">
+                            <span class="stat-value" id="entryCount">{{ entry_count }}</span>
+                            записей
+                        </span>
+                    </div>
+                </header>
+                
+                <div class="messages knowledge-content">
+                    <div class="knowledge-upload-section">
+                        <div class="upload-info">
+                            <h3>💾 Загрузка базы знаний</h3>
+                            <p>Загрузите Excel-файл с вопросами и ответами для обучения системы</p>
+                        </div>
+                        
+                        <form id="uploadForm" class="knowledge-form" enctype="multipart/form-data">
+                            <div class="file-upload-wrapper">
+                                <input id="fileInput" name="file" type="file" accept=".xlsx,.xls" required class="file-input">
+                                <label for="fileInput" class="file-upload-label">
+                                    <div class="file-upload-icon">📎</div>
+                                    <div class="file-upload-text">
+                                        <span class="file-upload-title">Выберите Excel файл</span>
+                                        <span class="file-upload-subtitle">или перетащите его сюда</span>
+                                    </div>
+                                    <div class="file-upload-formats">Поддерживаются .xlsx и .xls</div>
+                                </label>
+                                <div id="fileName" class="file-name"></div>
+                            </div>
+                            
+                            <button type="submit" class="primary-button" id="uploadButton" disabled>
+                                <span class="button-icon">⬆️</span>
+                                Загрузить и обновить базу
+                            </button>
+                        </form>
+
+                        <div id="uploadStatus" class="upload-status"></div>
+                    </div>
+                    
+                    <div class="knowledge-info-section">
+                        <div class="info-card">
+                            <h4>📋 Требования к файлу:</h4>
+                            <ul>
+                                <li>Минимум два столбца: вопросы и ответы</li>
+                                <li>Первая строка может содержать заголовки</li>
+                                <li>Поддерживаются форматы .xlsx и .xls</li>
+                                <li>Загрузка заменит всю существующую базу знаний</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 
@@ -49,7 +96,76 @@
         const statusLabel = document.getElementById('uploadStatus');
         const entryCountLabel = document.getElementById('entryCount');
         const fileInput = document.getElementById('fileInput');
+        const fileName = document.getElementById('fileName');
+        const uploadButton = document.getElementById('uploadButton');
 
+        // Обработка выбора файла
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                fileName.innerHTML = `
+                    <div class="selected-file">
+                        <span class="file-icon">📄</span>
+                        <span class="file-info">
+                            <span class="file-title">${file.name}</span>
+                            <span class="file-size">${(file.size / 1024).toFixed(1)} KB</span>
+                        </span>
+                        <button type="button" class="file-remove" onclick="clearFile()">✕</button>
+                    </div>
+                `;
+                uploadButton.disabled = false;
+                uploadButton.classList.add('enabled');
+            } else {
+                clearFile();
+            }
+        });
+
+        function clearFile() {
+            fileInput.value = '';
+            fileName.innerHTML = '';
+            uploadButton.disabled = true;
+            uploadButton.classList.remove('enabled');
+        }
+
+        // Drag & Drop
+        const fileUploadLabel = document.querySelector('.file-upload-label');
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            fileUploadLabel.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            fileUploadLabel.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            fileUploadLabel.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+            fileUploadLabel.classList.add('drag-over');
+        }
+
+        function unhighlight(e) {
+            fileUploadLabel.classList.remove('drag-over');
+        }
+
+        fileUploadLabel.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                fileInput.dispatchEvent(new Event('change'));
+            }
+        }
+        
         uploadForm.addEventListener('submit', async (event) => {
             event.preventDefault();
             if (!fileInput.files.length) {
