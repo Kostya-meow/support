@@ -202,13 +202,15 @@ def create_dispatcher(
             # RAG решил, что нужен оператор - создаем заявку
             ticket_id = await _create_ticket_and_add_message(message, user_text)
             if rag_result.final_answer:
-                await message.answer(rag_result.final_answer)
+                formatted_answer = f"<b>Бот:</b>\n{rag_result.final_answer}"
+                await message.answer(formatted_answer, parse_mode='HTML')
                 await _send_bot_message(ticket_id, rag_result.final_answer)
             return
 
         # Обычный ответ от бота
         answer_text = rag_result.final_answer or "Я пока не нашла ответ. Попробуйте уточнить вопрос."
-        await message.answer(answer_text, reply_markup=REQUEST_OPERATOR_KEYBOARD)
+        formatted_answer = f"<b>Бот:</b>\n{answer_text}"
+        await message.answer(formatted_answer, reply_markup=REQUEST_OPERATOR_KEYBOARD, parse_mode='HTML')
 
     async def _send_bot_message(ticket_id: int, text: str, is_system: bool = False) -> None:
         async with session_maker() as session:
@@ -223,7 +225,8 @@ def create_dispatcher(
         greeting = (
             "Здравствуйте! Опишите проблему — постараюсь помочь. Если ответ не подойдёт, можно позвать оператора."
         )
-        await message.answer(greeting, reply_markup=REQUEST_OPERATOR_KEYBOARD)
+        formatted_greeting = f"<b>Бот:</b>\n{greeting}"
+        await message.answer(formatted_greeting, reply_markup=REQUEST_OPERATOR_KEYBOARD, parse_mode='HTML')
 
     @router.message(F.voice)
     async def on_voice(message: Message) -> None:

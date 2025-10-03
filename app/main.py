@@ -27,6 +27,7 @@ from app.realtime import ConnectionManager
 from app.retrieval import KnowledgeBase
 from app.schemas import TicketRead, KnowledgeStats, MessageCreate, MessageRead, ConversationRead
 from app.simulator_service import SimulatorService
+from app.permissions import require_permission, require_admin, get_user_permissions
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +101,8 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
+@require_permission("tickets")
 async def index(request: Request):
-    if not auth.is_authenticated_request(request):
-        return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse("index.html", {"request": request})
 
 
@@ -118,10 +118,13 @@ async def login(request: Request):
     data = await request.json()
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
-    if not auth.validate_credentials(username, password):
+    
+    user = auth.validate_credentials(username, password)
+    if not user:
         raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+    
     response = JSONResponse({"success": True})
-    auth.issue_session_cookie(response)
+    auth.issue_session_cookie(response, user['id'])
     return response
 
 
@@ -137,9 +140,8 @@ async def logout(request: Request):
 
 
 @app.get("/admin/knowledge", response_class=HTMLResponse)
+@require_permission("knowledge")
 async def knowledge_admin(request: Request):
-    if not auth.is_authenticated_request(request):
-        return RedirectResponse(url="/login", status_code=303)
     async with KnowledgeSessionLocal() as session:
         total = await crud.count_knowledge_entries(session)
     return templates.TemplateResponse(
@@ -149,16 +151,14 @@ async def knowledge_admin(request: Request):
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
+@require_permission("dashboard")
 async def dashboard(request: Request):
-    if not auth.is_authenticated_request(request):
-        return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 
 @app.get("/simulator", response_class=HTMLResponse)
+@require_permission("simulator")
 async def simulator(request: Request):
-    if not auth.is_authenticated_request(request):
-        return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse("simulator.html", {"request": request})
 
 
@@ -359,9 +359,17 @@ async def api_reply(
     # Записываем время первого ответа оператора (если еще не записано)
     await crud.set_first_response_time(session, conversation_id)
 
+    # Получаем имя оператора для отображения в Telegram
+    from app.permissions import get_current_user_from_request
+    current_user = get_current_user_from_request(request)
+    operator_name = current_user.get('full_name', 'Оператор') if current_user else 'Оператор'
+    
+    # Форматируем сообщение с именем оператора
+    formatted_message = f"<b>Оператор {operator_name}:</b>\n{message.text}"
+
     bot: Bot | None = request.app.state.bot
     if bot is not None:
-        await bot.send_message(ticket.telegram_chat_id, message.text)
+        await bot.send_message(ticket.telegram_chat_id, formatted_message, parse_mode='HTML')
 
     new_message = await crud.add_message(session, conversation_id, "operator", message.text, is_system=False)
 
@@ -601,6 +609,229 @@ async def end_simulator_session(request: Request):
         return {"message": "Session ended", "stats": final_stats}
     
     return {"message": "No active session"}
+
+
+# ==================== ADMIN: USER MANAGEMENT ====================
+
+@app.get("/admin/users", response_class=HTMLResponse)
+@require_admin()
+async def users_admin(request: Request):
+    """Страница управления пользователями"""
+    return templates.TemplateResponse("admin_users.html", {"request": request})
+
+
+@app.get("/api/admin/users")
+@require_admin(redirect_to_home=False)
+async def get_users(request: Request):
+    """Получить список всех пользователей"""
+    from app.user_manager import user_manager
+    users = user_manager.get_all_users()
+    
+    # Убрать password_hash из ответа
+    for user in users:
+        user.pop('password_hash', None)
+    
+    return {"users": users}
+
+
+@app.get("/api/user/permissions")
+async def get_current_user_permissions(request: Request):
+    """Получить права доступа текущего пользователя"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    permissions = get_user_permissions(request)
+    return {"permissions": permissions}
+
+
+@app.post("/api/admin/users")
+@require_admin(redirect_to_home=False)
+async def create_user(request: Request, data: dict = Body(...)):
+    """Создать нового пользователя"""
+    
+    from app.user_manager import user_manager
+    
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    full_name = data.get("full_name", "").strip()
+    role_id = data.get("role_id")
+    is_admin = data.get("is_admin", False)
+    
+    if not username or not password or not full_name or not role_id:
+        raise HTTPException(status_code=400, detail="Все поля обязательны")
+    
+    user_id = user_manager.create_user(username, password, full_name, role_id, is_admin)
+    
+    if user_id is None:
+        raise HTTPException(status_code=400, detail="Пользователь с таким именем уже существует")
+    
+    return {"success": True, "user_id": user_id}
+
+
+@app.put("/api/admin/users/{user_id}")
+@require_admin(redirect_to_home=False)
+async def update_user(request: Request, user_id: int, data: dict = Body(...)):
+    """Обновить данные пользователя"""
+    # Нельзя изменять главного администратора
+    if user_id == 1:
+        raise HTTPException(status_code=403, detail="Нельзя изменять системного администратора")
+    
+    from app.user_manager import user_manager
+    
+    success = user_manager.update_user(user_id, **data)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    return {"success": True}
+
+
+@app.delete("/api/admin/users/{user_id}")
+@require_admin(redirect_to_home=False)
+async def delete_user(request: Request, user_id: int):
+    """Удалить пользователя"""
+    # Нельзя удалить главного администратора
+    if user_id == 1:
+        raise HTTPException(status_code=403, detail="Нельзя удалить системного администратора")
+    
+    from app.user_manager import user_manager
+    
+    success = user_manager.delete_user(user_id)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    return {"success": True}
+
+
+@app.post("/api/admin/users/{user_id}/password")
+@require_admin(redirect_to_home=False)
+async def change_password(request: Request, user_id: int, data: dict = Body(...)):
+    """Изменить пароль пользователя"""
+    from app.user_manager import user_manager
+    
+    new_password = data.get("password", "").strip()
+    
+    if not new_password:
+        raise HTTPException(status_code=400, detail="Пароль не может быть пустым")
+    
+    success = user_manager.update_password(user_id, new_password)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    return {"success": True}
+
+
+# ==================== ADMIN: PERMISSIONS ====================
+
+@app.get("/api/admin/permissions")
+@require_admin(redirect_to_home=False)
+async def get_permissions(request: Request):
+    """Получить все доступные права (страницы)"""
+    
+    from app.user_manager import user_manager
+    permissions = user_manager.get_all_permissions()
+    
+    return {"permissions": permissions}
+
+
+@app.get("/api/admin/users/{user_id}/permissions")
+@require_admin(redirect_to_home=False)
+async def get_user_permissions_admin(request: Request, user_id: int):
+    """Получить права конкретного пользователя"""
+    from app.user_manager import user_manager
+    permissions = user_manager.get_user_permissions(user_id)
+    
+    return {"permissions": permissions}
+
+
+@app.post("/api/admin/users/{user_id}/permissions")
+@require_admin(redirect_to_home=False)
+async def set_user_permission(request: Request, user_id: int, data: dict = Body(...)):
+    """Установить индивидуальное право пользователя"""
+    from app.user_manager import user_manager
+    
+    page_key = data.get("page_key")
+    granted = data.get("granted", True)
+    
+    if not page_key:
+        raise HTTPException(status_code=400, detail="page_key обязателен")
+    
+    success = user_manager.set_user_permission(user_id, page_key, granted)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Право не найдено")
+    
+    return {"success": True}
+
+
+# ==================== ADMIN: ROLES ====================
+
+@app.get("/api/admin/roles")
+@require_admin(redirect_to_home=False)
+async def get_roles(request: Request):
+    """Получить все роли"""
+    
+    from app.user_manager import user_manager
+    roles = user_manager.get_all_roles()
+    
+    return {"roles": roles}
+
+
+@app.get("/api/admin/roles/{role_id}/permissions")
+@require_admin(redirect_to_home=False)
+async def get_role_permissions(request: Request, role_id: int):
+    """Получить права роли"""
+    from app.user_manager import user_manager
+    permissions = user_manager.get_role_permissions(role_id)
+    
+    return {"permissions": permissions}
+
+
+@app.post("/api/admin/roles/{role_id}/permissions")
+@require_admin(redirect_to_home=False)
+async def set_role_permissions(request: Request, role_id: int, data: dict = Body(...)):
+    """Установить права роли"""
+    from app.user_manager import user_manager
+    
+    page_keys = data.get("page_keys", [])
+    
+    success = user_manager.set_role_permissions(role_id, page_keys)
+    
+    return {"success": success}
+
+
+# ==================== ADMIN: SETTINGS ====================
+
+@app.get("/api/admin/settings")
+@require_admin(redirect_to_home=False)
+async def get_settings_admin(request: Request):
+    """Получить все настройки системы"""
+    from app.user_manager import user_manager
+    settings = user_manager.get_all_settings()
+    
+    return {"settings": settings}
+
+
+@app.post("/api/admin/settings")
+@require_admin(redirect_to_home=False)
+async def update_setting(request: Request, data: dict = Body(...)):
+    """Обновить настройку"""
+    from app.user_manager import user_manager
+    
+    key = data.get("key")
+    value = data.get("value")
+    
+    if not key or value is None:
+        raise HTTPException(status_code=400, detail="key и value обязательны")
+    
+    success = user_manager.set_setting(key, str(value))
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Настройка не найдена")
+    
+    return {"success": True}
 
 
 

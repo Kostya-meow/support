@@ -305,6 +305,8 @@ body {
     flex-direction: column;
     gap: 6px;
     flex: 1;
+    overflow: hidden; /* Предотвращаем скролл самого контейнера */
+    min-height: 0; /* Важно для правильной работы flex */
 }
 
 .sidebar-footer {
@@ -577,7 +579,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    overflow-y: auto;
+    overflow: hidden; /* Убираем скролл у всей панели */
     box-shadow: var(--shadow-lg);
     border-right: 1px solid var(--border-color);
     justify-content: space-between;
@@ -597,6 +599,16 @@ body {
     box-sizing: border-box;
 }
 
+.main-content {
+    flex: 1;
+    background: var(--background-light);
+    padding: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+
 /* Специальный режим для симулятора - без padding и overflow */
 .dashboard-main.simulator-mode {
     padding: 0;
@@ -610,6 +622,8 @@ body {
     flex-direction: column;
     gap: 20px;
     flex: 1; /* Занимает все доступное пространство */
+    overflow: hidden; /* Предотвращаем скролл самого контейнера */
+    min-height: 0; /* Важно для правильной работы flex */
 }
 
 .sidebar-footer {
@@ -790,11 +804,33 @@ body {
 
 .conversation-list {
     list-style: none;
-    padding: 0;
+    padding: 0 4px 0 0; /* Небольшой отступ справа для скроллбара */
     margin: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    overflow-y: auto; /* Скролл только для списка заявок */
+    flex: 1; /* Занимает оставшееся пространство */
+    min-height: 0; /* Важно для правильной работы flex */
+}
+
+/* Стилизация скроллбара для списка заявок */
+.conversation-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.conversation-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+}
+
+.conversation-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+.conversation-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
 }
 
 .conversation-item {
@@ -2012,11 +2048,33 @@ body.admin-body {
 /* Список разговоров */
 .conversation-list {
     list-style: none;
-    padding: 0;
+    padding: 0 4px 0 0; /* Небольшой отступ справа для скроллбара */
     margin: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    overflow-y: auto; /* Скролл только для списка заявок */
+    flex: 1; /* Занимает оставшееся пространство */
+    min-height: 0; /* Важно для правильной работы flex */
+}
+
+/* Стилизация скроллбара для списка заявок */
+.conversation-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.conversation-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+}
+
+.conversation-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+.conversation-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
 }
 
 .conversation-item {
