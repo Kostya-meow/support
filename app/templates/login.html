@@ -5,22 +5,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Support Desk — Вход</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        body {
+            overflow: auto !important;
+        }
+    </style>
 </head>
-<body class="login-body">
-    <main class="login-card">
-        <h1>Support Desk</h1>
-        <p class="login-subtitle">Введите данные администратора</p>
-        <form id="loginForm" class="login-form" autocomplete="off">
-            <label for="username">Логин</label>
-            <input id="username" name="username" type="text" required autofocus>
+<body>
+    <div class="login-layout">
+        <div class="login-card">
+            <h1 class="login-title">Support Desk</h1>
+            <p class="login-subtitle">Введите данные администратора</p>
+            
+            <form id="loginForm" class="login-form" autocomplete="off">
+                <div class="form-group">
+                    <label for="username" class="form-label">Логин</label>
+                    <input id="username" name="username" type="text" class="form-input" required autofocus>
+                </div>
 
-            <label for="password">Пароль</label>
-            <input id="password" name="password" type="password" required>
+                <div class="form-group">
+                    <label for="password" class="form-label">Пароль</label>
+                    <input id="password" name="password" type="password" class="form-input" required>
+                </div>
 
-            <p id="loginError" class="login-error hidden"></p>
-            <button type="submit">Войти</button>
-        </form>
-    </main>
+                <div id="loginError" class="login-error hidden"></div>
+                
+                <button type="submit" class="btn btn-primary btn-large btn-full">Войти</button>
+            </form>
+        </div>
+    </div>
 
     <script>
         const loginForm = document.getElementById('loginForm');
@@ -48,5 +61,7 @@
             }
         });
     </script>
+</body>
+</html>
 </body>
 </html>

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -8,112 +8,117 @@
 </head>
 <body>
     <div class="layout">
-        <!-- Сайдбар с навигацией -->
         <aside class="sidebar">
             <div class="sidebar-content">
                 <div class="sidebar-header">
+                    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">◀</button>
                     <h1>Support Desk</h1>
                 </div>
-                
                 <div class="sidebar-section">
                     <div class="sidebar-section-title">Навигация</div>
-                    <nav class="sidebar-nav">
-                        <a href="/" class="link-button">📋 Заявки</a>
-                        <a href="/dashboard" class="link-button">📊 Дашборд</a>
-                        <a href="/admin/knowledge" class="link-button active primary">📚 База знаний</a>
-                    </nav>
+                    <div class="main-nav">
+                        <a href="/" class="main-nav-btn">
+                            <span class="btn-icon">📋</span>
+                            <span class="btn-text">Заявки</span>
+                        </a>
+                        <a href="/dashboard" class="main-nav-btn">
+                            <span class="btn-icon">📊</span>
+                            <span class="btn-text">Дашборд</span>
+                        </a>
+                        <a href="/admin/knowledge" class="main-nav-btn active">
+                            <span class="btn-icon">📚</span>
+                            <span class="btn-text">База знаний</span>
+                        </a>
+                    </div>
                 </div>
             </div>
-            
             <div class="sidebar-footer">
                 <form method="post" action="/logout">
-                    <button type="submit" class="link-button logout">🚪 Выйти</button>
+                    <button type="submit" class="logout-btn">
+                        <span class="btn-icon">🚪</span>
+                        <span class="btn-text">Выйти</span>
+                    </button>
                 </form>
             </div>
         </aside>
-        
-        <!-- Основной контент -->
-        <main class="chat">
-            <section class="chat-panel">
-                <header class="chat-panel__header">
-                    <h2>📚 База знаний</h2>
-                    <div class="knowledge-stats-inline">
-                        <span class="stat-badge">
-                            <span class="stat-value" id="entryCount">{{ entry_count }}</span>
-                            записей
-                        </span>
-                    </div>
-                </header>
-                
-                <div class="messages knowledge-content">
-                    <div class="knowledge-upload-section">
-                        <div class="upload-info">
-                            <h3>💾 Загрузка базы знаний</h3>
-                            <p>Загрузите Excel-файл с вопросами и ответами для обучения системы</p>
-                        </div>
-                        
-                        <form id="uploadForm" class="knowledge-form" enctype="multipart/form-data">
-                            <div class="file-upload-wrapper">
-                                <input id="fileInput" name="file" type="file" accept=".xlsx,.xls" required class="file-input">
-                                <label for="fileInput" class="file-upload-label">
-                                    <div class="file-upload-icon">📎</div>
-                                    <div class="file-upload-text">
-                                        <span class="file-upload-title">Выберите Excel файл</span>
-                                        <span class="file-upload-subtitle">или перетащите его сюда</span>
-                                    </div>
-                                    <div class="file-upload-formats">Поддерживаются .xlsx и .xls</div>
-                                </label>
-                                <div id="fileName" class="file-name"></div>
-                            </div>
-                            
-                            <button type="submit" class="link-button primary" id="uploadButton" style="margin: 32px auto 0 auto; display: flex; justify-content: center; align-items: center; min-width: 320px; font-size: 1.15rem;" disabled>
-                                Загрузить и обновить базу
-                            </button>
-                        </form>
 
-                        <div id="uploadStatus" class="upload-status"></div>
-                    </div>
-                    
-                    <div class="knowledge-info-section">
-                        <div class="info-card">
-                            <h4>📋 Требования к файлу:</h4>
-                            <ul>
-                                <li>Минимум два столбца: вопросы и ответы</li>
-                                <li>Первая строка может содержать заголовки</li>
-                                <li>Поддерживаются форматы .xlsx и .xls</li>
-                                <li>Загрузка заменит всю существующую базу знаний</li>
-                            </ul>
+                <div class="knowledge-main">
+            <div class="knowledge-page-header">
+                <div class="header-left">
+                    <h1>База знаний</h1>
+                    <p>Управление базой данных вопросов и ответов</p>
+                </div>
+                <div class="header-right">
+                    <div class="stat-inline">
+                        <div class="stat-icon">📚</div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="entriesCount">-</div>
+                            <div class="stat-label">Записей в базе</div>
                         </div>
                     </div>
                 </div>
-            </section>
+            </div>
+
+            <div class="knowledge-content-wrapper">
+                <div class="knowledge-card upload-card">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <span class="card-icon">📤</span>
+                            <h3 class="card-title">Загрузка базы знаний</h3>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-description">
+                            Загрузите Excel-файл с вопросами и ответами для обучения системы. 
+                            Файл должен содержать два столбца с заголовками <strong>"Вопрос"</strong> и <strong>"Ответ"</strong>. 
+                            Поддерживаются форматы .xlsx и .xls. 
+                            <span class="text-warning"><strong>⚠️ Загрузка заменит существующую базу знаний.</strong></span>
+                        </p>
+
+                        <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
+                            <div class="file-upload-area">
+                                <input id="fileInput" name="file" type="file" accept=".xlsx,.xls" required class="file-input-hidden">
+                                <label for="fileInput" class="file-upload-zone">
+                                    <div class="upload-icon">
+                                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="17 8 12 3 7 8"></polyline>
+                                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                                        </svg>
+                                    </div>
+                                    <div class="upload-text">
+                                        <span class="upload-primary">Нажмите для выбора файла</span>
+                                        <span class="upload-secondary">или перетащите его сюда</span>
+                                    </div>
+                                    <div class="upload-formats">Форматы: .xlsx, .xls</div>
+                                </label>
+                                <div id="fileName" class="selected-file-info"></div>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-large" id="uploadButton" disabled>
+                                <span>📥 Загрузить и обновить базу</span>
+                            </button>
+                        </form>
+
+                        <div id="uploadStatus" class="upload-status-message"></div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
     <script>
         const uploadForm = document.getElementById('uploadForm');
         const statusLabel = document.getElementById('uploadStatus');
-        const entryCountLabel = document.getElementById('entryCount');
+        const entryCountLabel = document.getElementById('entriesCount');
         const fileInput = document.getElementById('fileInput');
         const fileName = document.getElementById('fileName');
         const uploadButton = document.getElementById('uploadButton');
 
-        // Обработка выбора файла
         fileInput.addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (file) {
-                fileName.innerHTML = `
-                    <div class="selected-file">
-                        <span class="file-icon">📄</span>
-                        <span class="file-info">
-                            <span class="file-title">${file.name}</span>
-                            <span class="file-size">${(file.size / 1024).toFixed(1)} KB</span>
-                        </span>
-                        <button type="button" class="file-remove" onclick="clearFile()">✕</button>
-                    </div>
-                `;
+                fileName.innerHTML = '<div class="file-selected"><div class="file-icon-display">📄</div><div class="file-details"><div class="file-name-display">' + file.name + '</div><div class="file-size-display">' + (file.size / 1024).toFixed(1) + ' KB</div></div><button type="button" class="file-clear-btn" onclick="clearFile()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></div>';
                 uploadButton.disabled = false;
-                uploadButton.classList.add('enabled');
             } else {
                 clearFile();
             }
@@ -123,63 +128,36 @@
             fileInput.value = '';
             fileName.innerHTML = '';
             uploadButton.disabled = true;
-            uploadButton.classList.remove('enabled');
         }
 
-        // Drag & Drop
-        const fileUploadLabel = document.querySelector('.file-upload-label');
-        
+        const fileUploadZone = document.querySelector('.file-upload-zone');
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            fileUploadLabel.addEventListener(eventName, preventDefaults, false);
+            fileUploadZone.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
         });
 
-        function preventDefaults(e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-
         ['dragenter', 'dragover'].forEach(eventName => {
-            fileUploadLabel.addEventListener(eventName, highlight, false);
+            fileUploadZone.addEventListener(eventName, () => fileUploadZone.classList.add('drag-active'), false);
         });
 
         ['dragleave', 'drop'].forEach(eventName => {
-            fileUploadLabel.addEventListener(eventName, unhighlight, false);
+            fileUploadZone.addEventListener(eventName, () => fileUploadZone.classList.remove('drag-active'), false);
         });
 
-        function highlight(e) {
-            fileUploadLabel.classList.add('drag-over');
-        }
-
-        function unhighlight(e) {
-            fileUploadLabel.classList.remove('drag-over');
-        }
-
-        fileUploadLabel.addEventListener('drop', handleDrop, false);
-
-        function handleDrop(e) {
-            const dt = e.dataTransfer;
-            const files = dt.files;
+        fileUploadZone.addEventListener('drop', function(e) {
+            const files = e.dataTransfer.files;
             if (files.length > 0) {
                 fileInput.files = files;
                 fileInput.dispatchEvent(new Event('change'));
             }
-        }
-        
-        uploadForm.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            if (!fileInput.files.length) {
-                statusLabel.textContent = 'Выберите файл перед загрузкой.';
-                statusLabel.classList.remove('success', 'loading');
-                statusLabel.classList.add('error');
-                return;
-            }
+        }, false);
+
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!fileInput.files || fileInput.files.length === 0) return;
 
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
-
-            statusLabel.textContent = 'Идёт обработка файла...';
-            statusLabel.classList.remove('error', 'success');
-            statusLabel.classList.add('loading');
+            statusLabel.innerHTML = '<div class="status-loading">⏳ Идёт обработка файла...</div>';
 
             try {
                 const response = await fetch('/admin/knowledge/upload', {
@@ -194,32 +172,41 @@
                 }
 
                 const data = await response.json();
-                statusLabel.textContent = `Готово! Загружено записей: ${data.entries}`;
-                statusLabel.classList.remove('error', 'loading');
-                statusLabel.classList.add('success');
-                fileInput.value = '';
+                statusLabel.innerHTML = '<div class="status-success">✓ Успешно загружено ' + data.entries + ' записей!</div>';
+                clearFile();
                 await refreshStats();
             } catch (error) {
-                statusLabel.textContent = error.message;
-                statusLabel.classList.remove('success', 'loading');
-                statusLabel.classList.add('error');
+                statusLabel.innerHTML = '<div class="status-error">✕ Ошибка: ' + error.message + '</div>';
             }
         });
 
         async function refreshStats() {
             try {
-                const response = await fetch('/api/knowledge/stats', {
-                    credentials: 'same-origin',
-                });
-                if (!response.ok) {
-                    return;
-                }
+                const response = await fetch('/api/knowledge/stats', { credentials: 'same-origin' });
+                if (!response.ok) return;
                 const data = await response.json();
                 entryCountLabel.textContent = data.total_entries;
             } catch (error) {
                 console.error('Не удалось обновить статистику', error);
             }
         }
+
+        function toggleSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            sidebar.classList.toggle('collapsed');
+            localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
+            const toggleBtn = document.querySelector('.sidebar-toggle');
+            toggleBtn.textContent = sidebar.classList.contains('collapsed') ? '▶' : '◀';
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            if (isCollapsed) {
+                document.querySelector('.sidebar').classList.add('collapsed');
+                document.querySelector('.sidebar-toggle').textContent = '▶';
+            }
+            refreshStats();
+        });
     </script>
 </body>
 </html>

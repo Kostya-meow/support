@@ -7,52 +7,11 @@
     <link rel="stylesheet" href="/static/styles.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            height: 100vh;
-            overflow: hidden;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-        }
-        
-        .dashboard-layout {
-            display: flex;
-            height: 100vh;
-        }
-        
-        .dashboard-sidebar {
-            width: 350px;
-            background: var(--background-dark);
-            color: var(--text-light);
-            padding: 24px;
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            overflow-y: auto;
-        }
-        
-        .sidebar-content {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-        
-        .sidebar-footer {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            margin-top: auto;
-            padding-top: 24px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
         .dashboard-main {
             flex: 1;
             background: var(--background-light);
             padding: 24px;
             overflow-y: auto;
-            box-sizing: border-box;
         }
         
         .dashboard-header {
@@ -78,55 +37,12 @@
             margin-bottom: 30px;
         }
         
-        .stat-card {
-            background: white;
-            border-radius: var(--radius-lg);
-            padding: 24px;
-            box-shadow: var(--shadow-md);
-            border-left: 4px solid var(--accent-color);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        
-        .stat-card:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-lg);
-        }
-        
-        .stat-card.success {
-            border-left-color: var(--success-color);
-        }
-        
-        .stat-card.warning {
-            border-left-color: var(--warning-color);
-        }
-        
-        .stat-card.info {
-            border-left-color: var(--accent-color);
-        }
-        
-        .stat-card.danger {
-            border-left-color: var(--danger-color);
-        }
-        
-        .stat-value {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 8px;
-            color: var(--text-primary);
-        }
-        
-        .stat-label {
-            color: var(--text-secondary);
-            font-size: 0.95rem;
-            font-weight: 500;
-        }
-        
         .charts-container {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
             margin-bottom: 30px;
-            min-height: 400px; /* Фиксированная минимальная высота */
+            min-height: 400px;
         }
         
         .chart-card {
@@ -134,7 +50,7 @@
             border-radius: var(--radius-lg);
             padding: 24px;
             box-shadow: var(--shadow-md);
-            min-height: 350px; /* Фиксированная высота карточек */
+            min-height: 350px;
             display: flex;
             flex-direction: column;
         }
@@ -144,13 +60,13 @@
             font-weight: 600;
             margin-bottom: 20px;
             color: var(--text-primary);
-            flex-shrink: 0; /* Заголовок не сжимается */
+            flex-shrink: 0;
         }
         
         .chart-container {
             flex: 1;
             position: relative;
-            min-height: 280px; /* Минимальная высота для графиков */
+            min-height: 280px;
         }
         
         .chart-container canvas {
@@ -192,74 +108,7 @@
             font-weight: 500;
         }
         
-        /* Навигация в сайдбаре */
-        .sidebar-header h1 {
-            margin: 0 0 20px 0;
-            font-size: 1.5rem;
-        }
-        
-        .nav-menu {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        
-        .nav-item {
-            margin-bottom: 8px;
-        }
-        
-        .nav-link {
-            display: block;
-            color: var(--text-light);
-            text-decoration: none;
-            padding: 12px 16px;
-            border-radius: var(--radius-md);
-            transition: all 0.2s ease;
-            font-weight: 500;
-        }
-        
-        .nav-link:hover {
-            background: rgba(255, 255, 255, 0.1);
-            transform: translateX(4px);
-        }
-        
-        .nav-link.active {
-            background: var(--accent-color);
-            color: white;
-        }
-        
-        .logout-form {
-            margin-top: auto;
-        }
-        
-        .logout-btn {
-            width: 100%;
-            background: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: var(--text-light);
-            padding: 12px;
-            border-radius: var(--radius-md);
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-weight: 500;
-        }
-        
-        .logout-btn:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.5);
-        }
-        
         @media (max-width: 768px) {
-            .dashboard-layout {
-                flex-direction: column;
-            }
-            
-            .dashboard-sidebar {
-                width: 100%;
-                height: auto;
-                min-height: auto;
-            }
-            
             .charts-container {
                 grid-template-columns: 1fr;
             }
@@ -271,35 +120,43 @@
     </style>
 </head>
 <body>
-    <div class="dashboard-layout">
+    <div class="layout">
         <!-- Сайдбар с навигацией -->
-        <aside class="dashboard-sidebar">
+        <aside class="sidebar">
             <div class="sidebar-content">
                 <div class="sidebar-header">
+                    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">
+                        ◀
+                    </button>
                     <h1>Support Desk</h1>
                 </div>
                 
+                <!-- Главная навигация -->
                 <div class="sidebar-section">
                     <div class="sidebar-section-title">Навигация</div>
-                    <nav>
-                        <ul class="nav-menu">
-                            <li class="nav-item">
-                                <a href="/" class="nav-link">Заявки</a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="/dashboard" class="nav-link active">Дашборд</a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="/admin/knowledge" class="nav-link">База знаний</a>
-                            </li>
-                        </ul>
-                    </nav>
+                    <div class="main-nav">
+                        <a href="/" class="main-nav-btn">
+                            <span class="btn-icon">📋</span>
+                            <span class="btn-text">Заявки</span>
+                        </a>
+                        <a href="/dashboard" class="main-nav-btn active">
+                            <span class="btn-icon">📊</span>
+                            <span class="btn-text">Дашборд</span>
+                        </a>
+                        <a href="/admin/knowledge" class="main-nav-btn">
+                            <span class="btn-icon">📚</span>
+                            <span class="btn-text">База знаний</span>
+                        </a>
+                    </div>
                 </div>
             </div>
             
             <div class="sidebar-footer">
-                <form class="logout-form" method="post" action="/logout">
-                    <button type="submit" class="logout-btn">Выйти</button>
+                <form method="post" action="/logout">
+                    <button type="submit" class="logout-btn">
+                        <span class="btn-icon">🚪</span>
+                        <span class="btn-text">Выйти</span>
+                    </button>
                 </form>
             </div>
         </aside>
@@ -508,8 +365,34 @@
             });
         }
 
+        function toggleSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            sidebar.classList.toggle('collapsed');
+            
+            // Сохраняем состояние в localStorage
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            localStorage.setItem('sidebarCollapsed', isCollapsed);
+            
+            // Меняем иконку кнопки
+            const toggleBtn = document.querySelector('.sidebar-toggle');
+            toggleBtn.textContent = isCollapsed ? '▶' : '◀';
+        }
+
         // Загружаем данные при загрузке страницы
-        document.addEventListener('DOMContentLoaded', loadDashboardData);
+        document.addEventListener('DOMContentLoaded', () => {
+            // Восстанавливаем состояние sidebar
+            const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            const sidebar = document.querySelector('.sidebar');
+            const toggleBtn = document.querySelector('.sidebar-toggle');
+            
+            if (isCollapsed) {
+                sidebar.classList.add('collapsed');
+                toggleBtn.textContent = '▶';
+            }
+            
+            // Загружаем данные дашборда
+            loadDashboardData();
+        });
         
         // Обновляем данные каждые 5 минут
         setInterval(loadDashboardData, 5 * 60 * 1000);

@@ -8,16 +8,33 @@
 </head>
 <body>
     <div class="layout">
+        <!-- Сайдбар с навигацией -->
         <aside class="sidebar">
             <div class="sidebar-content">
                 <div class="sidebar-header">
+                    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">
+                        ◀
+                    </button>
                     <h1>Support Desk</h1>
                 </div>
                 
+                <!-- Главная навигация -->
                 <div class="sidebar-section">
-                    <div class="sidebar-section-title">Управление</div>
-                    <a href="/dashboard" class="link-button primary">📊 Дашборд</a>
-                    <a href="/admin/knowledge" class="link-button">📚 База знаний</a>
+                    <div class="sidebar-section-title">Навигация</div>
+                    <div class="main-nav">
+                        <a href="/" class="main-nav-btn active">
+                            <span class="btn-icon">📋</span>
+                            <span class="btn-text">Заявки</span>
+                        </a>
+                        <a href="/dashboard" class="main-nav-btn">
+                            <span class="btn-icon">📊</span>
+                            <span class="btn-text">Дашборд</span>
+                        </a>
+                        <a href="/admin/knowledge" class="main-nav-btn">
+                            <span class="btn-icon">📚</span>
+                            <span class="btn-text">База знаний</span>
+                        </a>
+                    </div>
                 </div>
                 
                 <!-- Вкладки -->
@@ -25,10 +42,12 @@
                     <div class="sidebar-section-title">Заявки</div>
                     <div class="tabs">
                         <button id="activeTab" class="tab-button active" data-tab="active">
-                            Активные
+                            <span class="btn-icon">✅</span>
+                            <span class="btn-text">Активные</span>
                         </button>
                         <button id="archivedTab" class="tab-button" data-tab="archived">
-                            Архив
+                            <span class="btn-icon">📦</span>
+                            <span class="btn-text">Архив</span>
                         </button>
                     </div>
                 </div>
@@ -38,10 +57,15 @@
             
             <div class="sidebar-footer">
                 <form id="logoutForm" method="post" action="/logout">
-                    <button type="submit" class="link-button logout">🚪 Выйти</button>
+                    <button type="submit" class="logout-btn">
+                        <span class="btn-icon">🚪</span>
+                        <span class="btn-text">Выйти</span>
+                    </button>
                 </form>
             </div>
         </aside>
+        
+        <!-- Основной контент -->
         <main class="chat">
             <section id="placeholder" class="placeholder">
                 <p>Нет активных заявок. Ожидаем обращения пользователей.</p>
@@ -49,7 +73,7 @@
             <section id="chatPanel" class="chat-panel hidden">
                 <header class="chat-panel__header">
                     <h2 id="chatTitle">Заявка</h2>
-                    <button id="finishButton" type="button" class="secondary-button">Завершить заявку</button>
+                    <button id="finishButton" type="button" class="btn btn-secondary">Завершить заявку</button>
                 </header>
                 
                 <!-- Панель с саммари -->
@@ -523,6 +547,31 @@
         function displaySummary(summary) {
             summaryContent.innerHTML = `<div class="summary-text">${summary}</div>`;
         }
+
+        function toggleSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            sidebar.classList.toggle('collapsed');
+            
+            // Сохраняем состояние в localStorage
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            localStorage.setItem('sidebarCollapsed', isCollapsed);
+            
+            // Меняем иконку кнопки
+            const toggleBtn = document.querySelector('.sidebar-toggle');
+            toggleBtn.textContent = isCollapsed ? '▶' : '◀';
+        }
+
+        // Восстанавливаем состояние sidebar при загрузке
+        document.addEventListener('DOMContentLoaded', () => {
+            const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            const sidebar = document.querySelector('.sidebar');
+            const toggleBtn = document.querySelector('.sidebar-toggle');
+            
+            if (isCollapsed) {
+                sidebar.classList.add('collapsed');
+                toggleBtn.textContent = '▶';
+            }
+        });
 
         loadConversations();
         initConversationsSocket();
