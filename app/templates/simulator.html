@@ -73,9 +73,15 @@
                 <div class="chat-panel">
                     <!-- Верхняя панель с информацией -->
                     <header class="game-header">
-                        <div class="character-info" id="characterInfo">
-                            <span class="character-emoji">🙂</span>
-                            <span class="character-name">Новичок Вася</span>
+                        <div class="header-left">
+                            <div class="character-info" id="characterInfo">
+                                <span class="character-emoji">🙂</span>
+                                <span class="character-name">Новичок Вася</span>
+                            </div>
+                            
+                            <div class="score-display">
+                                Баллы: <span id="currentScore">0</span>
+                            </div>
                         </div>
                         
                         <div class="progress-container">
@@ -87,16 +93,21 @@
                             </div>
                         </div>
                         
-                        <div class="score-display">
-                            Баллы: <span id="currentScore">0</span>
+                        <div class="header-right">
+                            <button type="button" class="btn-hint" id="hintBtn">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span class="btn-label">Подсказка</span>
+                            </button>
+                            
+                            <button class="btn-end-game" id="endGameBtn">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M15 19l-7-7 7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span class="btn-label">Завершить</span>
+                            </button>
                         </div>
-                        
-                        <button class="btn-end-game" id="endGameBtn">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <path d="M6 18L18 6M6 6l12 12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                            Завершить
-                        </button>
                     </header>
 
                     <!-- Сообщения чата - скроллящаяся область -->
@@ -106,29 +117,18 @@
                     
                     <!-- Область ввода ответа - всегда внизу -->
                     <form class="reply-form" id="answerForm" autocomplete="off">
-                        <div class="answer-input-wrapper">
+                        <div class="message-input-container">
                             <textarea 
                                 id="answerInput" 
-                                class="answer-input" 
                                 placeholder="Напишите ваш ответ пользователю..."
-                                rows="2"
+                                rows="1"
                             ></textarea>
                             
-                            <div class="answer-actions">
-                                <button type="button" class="btn-hint" id="hintBtn">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
-                                    Подсказка
-                                </button>
-                                
-                                <button type="submit" class="btn-submit" id="submitBtn">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
-                                    Отправить
-                                </button>
-                            </div>
+                            <button type="submit" class="send-button" id="submitBtn" title="Отправить (Enter)">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                                </svg>
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -231,14 +231,23 @@
         // Start new session
         async function startSession(character) {
             try {
-                // Switch to game screen immediately
+                // Get character info first
+                const charsResponse = await fetch('/api/simulator/characters');
+                const charsData = await charsResponse.json();
+                const selectedChar = charsData.characters[character];
+                
+                // Switch to game screen immediately with selected character
                 characterSelection.style.display = 'none';
                 gameScreen.style.display = 'block';
                 resultsScreen.style.display = 'none';
                 
+                // Update UI with selected character immediately
+                characterInfo.querySelector('.character-emoji').textContent = selectedChar.emoji;
+                characterInfo.querySelector('.character-name').textContent = selectedChar.name;
+                
                 // Show loading message
                 chatMessages.innerHTML = '';
-                addTypingIndicator();
+                addTypingIndicator(selectedChar.emoji);
                 
                 const response = await fetch('/api/simulator/start', {
                     method: 'POST',
@@ -249,9 +258,7 @@
                 const data = await response.json();
                 currentSession = data;
                 
-                // Update UI
-                characterInfo.querySelector('.character-emoji').textContent = data.character_info.emoji;
-                characterInfo.querySelector('.character-name').textContent = data.character_info.name;
+                // Update remaining UI
                 totalQuestionsEl.textContent = data.questions_total;
                 currentQuestionEl.textContent = data.current_question;
                 progressFill.style.width = `${(data.current_question / data.questions_total) * 100}%`;
@@ -274,12 +281,12 @@
         }
         
         // Add typing indicator
-        function addTypingIndicator() {
+        function addTypingIndicator(emoji = '🙂') {
             const typingDiv = document.createElement('div');
             typingDiv.className = 'chat-message chat-message-user typing-indicator';
             typingDiv.id = 'typingIndicator';
             typingDiv.innerHTML = `
-                <div class="message-avatar">${currentSession?.character_info?.emoji || '🙂'}</div>
+                <div class="message-avatar">${emoji}</div>
                 <div class="message-content typing-dots">
                     <span>.</span><span>.</span><span>.</span>
                 </div>
@@ -325,10 +332,13 @@
             // Add operator's answer to chat
             addMessage('operator', answer);
             
-            // Disable input
+            // Disable input and show loading animation
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path d="M12 6v6l4 2" stroke-width="2" stroke-linecap="round"/></svg> Оценка...';
+            submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="spin-animation"><circle cx="12" cy="12" r="10" stroke-width="2"/><path d="M12 6v6l4 2" stroke-width="2" stroke-linecap="round"/></svg>';
             answerInput.disabled = true;
+            
+            // Show typing indicator for evaluation
+            addTypingIndicator(currentSession.character_info.emoji);
             
             try {
                 const response = await fetch('/api/simulator/respond', {
@@ -339,6 +349,9 @@
                 
                 const data = await response.json();
                 
+                // Remove typing indicator
+                removeTypingIndicator();
+                
                 // Show evaluation
                 showEvaluation(data);
                 
@@ -348,25 +361,19 @@
                 
                 // Clear input
                 answerInput.value = '';
+                answerInput.style.height = 'auto';
                 
             } catch (error) {
                 console.error('Failed to submit answer:', error);
+                removeTypingIndicator();
                 alert('Ошибка отправки ответа');
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Отправить';
+                submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>';
                 answerInput.disabled = false;
             }
         }
         
         answerForm.addEventListener('submit', submitAnswer);
-        
-        // Enter to submit (Shift+Enter for new line)
-        answerInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                submitAnswer();
-            }
-        });
 
         // Show evaluation results as chat messages
         function showEvaluation(data) {
@@ -394,17 +401,26 @@
             currentQuestionEl.textContent = data.current_question + 1;
             progressFill.style.width = `${((data.current_question + 1) / data.questions_total) * 100}%`;
             
-            // Add new question
-            addMessage('user', data.next_question);
+            // Block input while showing new question
+            answerInput.disabled = true;
+            submitBtn.disabled = true;
             
-            // Reset input
-            answerInput.value = '';
-            answerInput.disabled = false;
-            answerInput.focus();
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Отправить';
+            // Show typing indicator
+            addTypingIndicator(currentSession.character_info.emoji);
             
-            // answerContainer всегда видимый, не нужно показывать
+            // Simulate typing delay, then show question
+            setTimeout(() => {
+                removeTypingIndicator();
+                addMessage('user', data.next_question);
+                
+                // Enable input
+                answerInput.value = '';
+                answerInput.style.height = 'auto';
+                answerInput.disabled = false;
+                answerInput.focus();
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>';
+            }, 800);
         }
 
         // Show results
@@ -426,9 +442,10 @@
                         <span class="history-item-number">Вопрос ${index + 1}</span>
                         <span class="history-item-score history-score-${scoreClass}">${item.score} баллов</span>
                     </div>
-                    <div class="history-item-question"><strong>Q:</strong> ${item.question}</div>
-                    <div class="history-item-answer"><strong>A:</strong> ${item.user_answer}</div>
-                    <div class="history-item-feedback"><strong>Feedback:</strong> ${item.feedback}</div>
+                    <div class="history-item-question"><strong>❓ Вопрос:</strong> ${item.question}</div>
+                    <div class="history-item-answer"><strong>💬 Ваш ответ:</strong> ${item.user_answer}</div>
+                    <div class="history-item-ideal"><strong>✨ Эталонный ответ:</strong> ${item.ai_suggestion || item.ideal_answer || 'Не указан'}</div>
+                    <div class="history-item-feedback"><strong>📝 Обратная связь:</strong> ${item.feedback}</div>
                 `;
                 historyContainer.appendChild(historyItem);
             });
@@ -457,10 +474,9 @@
                 // Восстанавливаем кнопку
                 hintBtn.disabled = false;
                 hintBtn.innerHTML = `
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                         <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
-                    Подсказка
                 `;
                 
             } catch (error) {
@@ -468,10 +484,9 @@
                 alert('Ошибка получения подсказки');
                 hintBtn.disabled = false;
                 hintBtn.innerHTML = `
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                         <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
-                    Подсказка
                 `;
             }
         });
@@ -511,10 +526,45 @@
         // Initialize
         loadCharacters();
         
+        // Auto-resize textarea
+        answerInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+        });
+        
+        // Submit on Enter (without Shift)
+        answerInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                answerForm.dispatchEvent(new Event('submit'));
+            }
+        });
+        
         // Sidebar toggle function
         function toggleSidebar() {
-            document.querySelector('.sidebar').classList.toggle('collapsed');
+            const sidebar = document.querySelector('.sidebar');
+            sidebar.classList.toggle('collapsed');
+            
+            // Сохраняем состояние в localStorage
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            localStorage.setItem('sidebarCollapsed', isCollapsed);
+            
+            // Меняем иконку кнопки
+            const toggleBtn = document.querySelector('.sidebar-toggle');
+            toggleBtn.textContent = isCollapsed ? '▶' : '◀';
         }
+
+        // Восстанавливаем состояние sidebar при загрузке
+        document.addEventListener('DOMContentLoaded', () => {
+            const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            const sidebar = document.querySelector('.sidebar');
+            const toggleBtn = document.querySelector('.sidebar-toggle');
+            
+            if (isCollapsed) {
+                sidebar.classList.add('collapsed');
+                toggleBtn.textContent = '▶';
+            }
+        });
     </script>
     </div> <!-- .layout -->
 </body>

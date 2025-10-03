@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from aiogram import Bot
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect, Body
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -482,10 +482,13 @@ async def get_simulator_characters(request: Request):
 
 
 @app.post("/api/simulator/start")
-async def start_simulator_session(request: Request, character: str = "medium"):
+async def start_simulator_session(request: Request, data: dict = Body(...)):
     """Начать новую сессию симулятора"""
     if not auth.is_authenticated_request(request):
         raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Получаем персонажа из body
+    character = data.get("character", "medium")
     
     # Используем session cookie как user_id
     settings = auth.get_settings()
