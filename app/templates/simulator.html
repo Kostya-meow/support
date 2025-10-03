@@ -69,98 +69,107 @@
             </div>
 
             <!-- Game Screen -->
-            <div id="gameScreen" class="simulator-screen game-layout" style="display: none;">
-                <!-- Верхняя панель с информацией -->
-                <div class="game-header">
-                    <div class="character-info" id="characterInfo">
-                        <span class="character-emoji">🙂</span>
-                        <span class="character-name">Новичок Вася</span>
-                    </div>
-                    
-                    <div class="progress-container">
-                        <div class="progress-label">
-                            Вопрос <span id="currentQuestion">1</span> из <span id="totalQuestions">5</span>
+            <div id="gameScreen" class="simulator-screen" style="display: none;">
+                <div class="chat-panel">
+                    <!-- Верхняя панель с информацией -->
+                    <header class="game-header">
+                        <div class="character-info" id="characterInfo">
+                            <span class="character-emoji">🙂</span>
+                            <span class="character-name">Новичок Вася</span>
                         </div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="progressFill" style="width: 20%"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="score-display">
-                        Баллы: <span id="currentScore">0</span>
-                    </div>
-                    
-                    <button class="btn-end-game" id="endGameBtn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <path d="M6 18L18 6M6 6l12 12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                        Завершить
-                    </button>
-                </div>
-
-                <!-- Сообщения чата - скроллящаяся область -->
-                <div class="chat-messages" id="chatMessages">
-                    <!-- Messages will appear here -->
-                </div>
-                
-                <!-- Область ввода ответа - всегда внизу -->
-                <div class="answer-container" id="answerContainer">
-                    <div class="answer-input-wrapper">
-                        <textarea 
-                            id="answerInput" 
-                            class="answer-input" 
-                            placeholder="Напишите ваш ответ пользователю..."
-                            rows="2"
-                        ></textarea>
                         
-                        <div class="answer-actions">
-                            <button class="btn-hint" id="hintBtn">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                                Подсказка
-                            </button>
-                            
-                            <button class="btn-submit" id="submitBtn">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                                Отправить
-                            </button>
+                        <div class="progress-container">
+                            <div class="progress-label">
+                                Вопрос <span id="currentQuestion">1</span> из <span id="totalQuestions">5</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill" style="width: 20%"></div>
+                            </div>
                         </div>
+                        
+                        <div class="score-display">
+                            Баллы: <span id="currentScore">0</span>
+                        </div>
+                        
+                        <button class="btn-end-game" id="endGameBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M6 18L18 6M6 6l12 12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            Завершить
+                        </button>
+                    </header>
+
+                    <!-- Сообщения чата - скроллящаяся область -->
+                    <div class="messages" id="chatMessages">
+                        <!-- Messages will appear here -->
                     </div>
+                    
+                    <!-- Область ввода ответа - всегда внизу -->
+                    <form class="reply-form" id="answerForm" autocomplete="off">
+                        <div class="answer-input-wrapper">
+                            <textarea 
+                                id="answerInput" 
+                                class="answer-input" 
+                                placeholder="Напишите ваш ответ пользователю..."
+                                rows="2"
+                            ></textarea>
+                            
+                            <div class="answer-actions">
+                                <button type="button" class="btn-hint" id="hintBtn">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    Подсказка
+                                </button>
+                                
+                                <button type="submit" class="btn-submit" id="submitBtn">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    Отправить
+                                </button>
+                            </div>
+                        </div>
+                    </form>
                 </div>
             </div>
 
             <!-- Results Screen -->
             <div id="resultsScreen" class="simulator-screen" style="display: none;">
-                <div class="results-container">
-                    <h2 class="results-title">🎉 Тренировка завершена!</h2>
-                    
-                    <div class="results-stats">
-                        <div class="result-stat">
-                            <div class="result-stat-value" id="finalScore">0</div>
-                            <div class="result-stat-label">Итоговый балл</div>
-                        </div>
+                <div class="results-wrapper">
+                    <div class="results-header">
+                        <h2 class="results-title">🎉 Тренировка завершена!</h2>
                         
-                        <div class="result-stat">
-                            <div class="result-stat-value" id="avgScore">0</div>
-                            <div class="result-stat-label">Средний балл</div>
-                        </div>
-                        
-                        <div class="result-stat">
-                            <div class="result-stat-value" id="questionsAnswered">0</div>
-                            <div class="result-stat-label">Вопросов</div>
+                        <div class="results-stats">
+                            <div class="result-stat">
+                                <div class="result-stat-value" id="finalScore">0</div>
+                                <div class="result-stat-label">Итоговый балл</div>
+                            </div>
+                            
+                            <div class="result-stat">
+                                <div class="result-stat-value" id="avgScore">0</div>
+                                <div class="result-stat-label">Средний балл</div>
+                            </div>
+                            
+                            <div class="result-stat">
+                                <div class="result-stat-value" id="questionsAnswered">0</div>
+                                <div class="result-stat-label">Вопросов</div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="results-history" id="resultsHistory">
-                        <!-- Detailed history will appear here -->
+                    <div class="results-content">
+                        <h3 class="results-section-title">Детальная статистика:</h3>
+                        <div class="results-history" id="resultsHistory">
+                            <!-- Detailed history will appear here -->
+                        </div>
                     </div>
 
-                    <button class="btn-primary btn-large" id="restartBtn">
-                        Начать заново
-                    </button>
+                    <div class="results-footer">
+                        <button class="btn-primary btn-large" id="restartBtn">
+                            Начать заново
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -186,7 +195,7 @@
         
         const chatMessages = document.getElementById('chatMessages');
         const answerInput = document.getElementById('answerInput');
-        const answerContainer = document.getElementById('answerContainer');
+        const answerForm = document.getElementById('answerForm');
         const hintBtn = document.getElementById('hintBtn');
         const submitBtn = document.getElementById('submitBtn');
         const endGameBtn = document.getElementById('endGameBtn');
@@ -255,7 +264,7 @@
                 
                 answerInput.value = '';
                 answerInput.focus();
-                answerContainer.style.display = 'block';
+                // answerContainer всегда видимый, не нужно показывать
                 
             } catch (error) {
                 console.error('Failed to start session:', error);
@@ -302,7 +311,11 @@
         }
 
         // Submit answer
-        async function submitAnswer() {
+        async function submitAnswer(event) {
+            if (event) {
+                event.preventDefault();
+            }
+            
             const answer = answerInput.value.trim();
             if (!answer) {
                 alert('Напишите ответ!');
@@ -345,7 +358,7 @@
             }
         }
         
-        submitBtn.addEventListener('click', submitAnswer);
+        answerForm.addEventListener('submit', submitAnswer);
         
         // Enter to submit (Shift+Enter for new line)
         answerInput.addEventListener('keydown', (e) => {
@@ -391,8 +404,7 @@
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Отправить';
             
-            // Show answer container
-            answerContainer.style.display = 'block';
+            // answerContainer всегда видимый, не нужно показывать
         }
 
         // Show results
@@ -403,7 +415,7 @@
             
             // Show detailed history
             const historyContainer = document.getElementById('resultsHistory');
-            historyContainer.innerHTML = '<h3>Детальная статистика:</h3>';
+            historyContainer.innerHTML = '';
             
             data.history.forEach((item, index) => {
                 const scoreClass = item.score >= 80 ? 'excellent' : item.score >= 60 ? 'good' : 'poor';

@@ -205,44 +205,32 @@
         }
 
         function appendMessage(message) {
-            const wrapper = document.createElement('div');
-            wrapper.className = `message ${message.sender}`;
-
-            const bubble = document.createElement('div');
-            bubble.className = 'bubble';
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message chat-message-${message.sender}`;
             
-            // Добавляем индикатор автора
-            const author = document.createElement('div');
-            author.className = 'message-author';
-            let authorText = '';
+            // Выбираем эмодзи в зависимости от отправителя
+            let emoji = '👤';
             switch(message.sender) {
                 case 'user':
-                    authorText = 'Пользователь';
+                    emoji = '👤'; // Пользователь
                     break;
                 case 'bot':
-                    authorText = 'Бот';
+                    emoji = '🤖'; // Бот
                     break;
                 case 'operator':
-                    authorText = 'Оператор';
+                    emoji = '👨‍💼'; // Оператор
                     break;
-                default:
-                    authorText = message.sender;
             }
-            author.textContent = authorText;
             
-            const messageText = document.createElement('div');
-            messageText.className = 'message-text';
-            messageText.textContent = message.text;
-
-            const meta = document.createElement('span');
-            meta.className = 'meta';
-            meta.textContent = formatTimestamp(message.created_at);
-
-            bubble.appendChild(author);
-            bubble.appendChild(messageText);
-            wrapper.appendChild(bubble);
-            wrapper.appendChild(meta);
-            messagesContainer.appendChild(wrapper);
+            messageDiv.innerHTML = `
+                <div class="message-avatar">${emoji}</div>
+                <div class="message-content">
+                    <div class="message-text">${message.text}</div>
+                    <div class="message-meta">${formatTimestamp(message.created_at)}</div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
         }
 
         function scrollMessagesToBottom() {
