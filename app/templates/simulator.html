@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Симулятор обучения - Support Desk</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="layout">
+        <!-- Сайдбар с навигацией -->
+        <aside class="sidebar">
+            <div class="sidebar-content">
+                <div class="sidebar-header">
+                    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">
+                        ◀
+                    </button>
+                    <h1>Support Desk</h1>
+                </div>
+                
+                <!-- Главная навигация -->
+                <div class="sidebar-section">
+                    <div class="sidebar-section-title">Навигация</div>
+                    <div class="main-nav">
+                        <a href="/" class="main-nav-btn">
+                            <span class="btn-icon">📋</span>
+                            <span class="btn-text">Заявки</span>
+                        </a>
+                        <a href="/dashboard" class="main-nav-btn">
+                            <span class="btn-icon">📊</span>
+                            <span class="btn-text">Дашборд</span>
+                        </a>
+                        <a href="/admin/knowledge" class="main-nav-btn">
+                            <span class="btn-icon">📚</span>
+                            <span class="btn-text">База знаний</span>
+                        </a>
+                        <a href="/simulator" class="main-nav-btn active">
+                            <span class="btn-icon">🤖</span>
+                            <span class="btn-text">Симулятор</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sidebar-footer">
+                <form method="post" action="/logout">
+                    <button type="submit" class="logout-btn">
+                        <span class="btn-icon">🚪</span>
+                        <span class="btn-text">Выйти</span>
+                    </button>
+                </form>
+            </div>
+        </aside>
+
+    <!-- Main Content -->
+    <main class="dashboard-main simulator-mode">
+        <div class="simulator-container">
+            
+            <!-- Character Selection Screen -->
+            <div id="characterSelection" class="simulator-screen">
+                <div class="simulator-header">
+                    <h1 class="simulator-title">🎮 Симулятор обучения оператора</h1>
+                    <p class="simulator-subtitle">Выберите персонажа и тренируйтесь отвечать на вопросы пользователей</p>
+                </div>
+
+                <div class="character-grid" id="characterGrid">
+                    <!-- Characters will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Game Screen -->
+            <div id="gameScreen" class="simulator-screen game-layout" style="display: none;">
+                <!-- Верхняя панель с информацией -->
+                <div class="game-header">
+                    <div class="character-info" id="characterInfo">
+                        <span class="character-emoji">🙂</span>
+                        <span class="character-name">Новичок Вася</span>
+                    </div>
+                    
+                    <div class="progress-container">
+                        <div class="progress-label">
+                            Вопрос <span id="currentQuestion">1</span> из <span id="totalQuestions">5</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill" style="width: 20%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="score-display">
+                        Баллы: <span id="currentScore">0</span>
+                    </div>
+                    
+                    <button class="btn-end-game" id="endGameBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M6 18L18 6M6 6l12 12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Завершить
+                    </button>
+                </div>
+
+                <!-- Сообщения чата - скроллящаяся область -->
+                <div class="chat-messages" id="chatMessages">
+                    <!-- Messages will appear here -->
+                </div>
+                
+                <!-- Область ввода ответа - всегда внизу -->
+                <div class="answer-container" id="answerContainer">
+                    <div class="answer-input-wrapper">
+                        <textarea 
+                            id="answerInput" 
+                            class="answer-input" 
+                            placeholder="Напишите ваш ответ пользователю..."
+                            rows="2"
+                        ></textarea>
+                        
+                        <div class="answer-actions">
+                            <button class="btn-hint" id="hintBtn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                Подсказка
+                            </button>
+                            
+                            <button class="btn-submit" id="submitBtn">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                Отправить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Screen -->
+            <div id="resultsScreen" class="simulator-screen" style="display: none;">
+                <div class="results-container">
+                    <h2 class="results-title">🎉 Тренировка завершена!</h2>
+                    
+                    <div class="results-stats">
+                        <div class="result-stat">
+                            <div class="result-stat-value" id="finalScore">0</div>
+                            <div class="result-stat-label">Итоговый балл</div>
+                        </div>
+                        
+                        <div class="result-stat">
+                            <div class="result-stat-value" id="avgScore">0</div>
+                            <div class="result-stat-label">Средний балл</div>
+                        </div>
+                        
+                        <div class="result-stat">
+                            <div class="result-stat-value" id="questionsAnswered">0</div>
+                            <div class="result-stat-label">Вопросов</div>
+                        </div>
+                    </div>
+
+                    <div class="results-history" id="resultsHistory">
+                        <!-- Detailed history will appear here -->
+                    </div>
+
+                    <button class="btn-primary btn-large" id="restartBtn">
+                        Начать заново
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // State
+        let currentSession = null;
+        let currentQuestion = null;
+
+        // DOM Elements
+        const characterSelection = document.getElementById('characterSelection');
+        const gameScreen = document.getElementById('gameScreen');
+        const resultsScreen = document.getElementById('resultsScreen');
+        const characterGrid = document.getElementById('characterGrid');
+        
+        const characterInfo = document.getElementById('characterInfo');
+        const currentQuestionEl = document.getElementById('currentQuestion');
+        const totalQuestionsEl = document.getElementById('totalQuestions');
+        const progressFill = document.getElementById('progressFill');
+        const currentScoreEl = document.getElementById('currentScore');
+        
+        const chatMessages = document.getElementById('chatMessages');
+        const answerInput = document.getElementById('answerInput');
+        const answerContainer = document.getElementById('answerContainer');
+        const hintBtn = document.getElementById('hintBtn');
+        const submitBtn = document.getElementById('submitBtn');
+        const endGameBtn = document.getElementById('endGameBtn');
+        const restartBtn = document.getElementById('restartBtn');
+
+        // Load characters on page load
+        async function loadCharacters() {
+            try {
+                const response = await fetch('/api/simulator/characters');
+                const data = await response.json();
+                
+                characterGrid.innerHTML = '';
+                
+                for (const [key, char] of Object.entries(data.characters)) {
+                    const card = document.createElement('div');
+                    card.className = 'character-card';
+                    card.innerHTML = `
+                        <div class="character-emoji-large">${char.emoji}</div>
+                        <h3 class="character-card-name">${char.name}</h3>
+                        <p class="character-card-description">${char.description}</p>
+                        <button class="btn-primary" onclick="startSession('${key}')">
+                            Выбрать
+                        </button>
+                    `;
+                    characterGrid.appendChild(card);
+                }
+            } catch (error) {
+                console.error('Failed to load characters:', error);
+                characterGrid.innerHTML = '<p class="error-message">Ошибка загрузки персонажей</p>';
+            }
+        }
+
+        // Start new session
+        async function startSession(character) {
+            try {
+                // Switch to game screen immediately
+                characterSelection.style.display = 'none';
+                gameScreen.style.display = 'block';
+                resultsScreen.style.display = 'none';
+                
+                // Show loading message
+                chatMessages.innerHTML = '';
+                addTypingIndicator();
+                
+                const response = await fetch('/api/simulator/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({character})
+                });
+                
+                const data = await response.json();
+                currentSession = data;
+                
+                // Update UI
+                characterInfo.querySelector('.character-emoji').textContent = data.character_info.emoji;
+                characterInfo.querySelector('.character-name').textContent = data.character_info.name;
+                totalQuestionsEl.textContent = data.questions_total;
+                currentQuestionEl.textContent = data.current_question;
+                progressFill.style.width = `${(data.current_question / data.questions_total) * 100}%`;
+                currentScoreEl.textContent = '0';
+                
+                // Remove typing indicator and show first question
+                removeTypingIndicator();
+                chatMessages.innerHTML = '';
+                addMessage('user', data.question);
+                
+                answerInput.value = '';
+                answerInput.focus();
+                answerContainer.style.display = 'block';
+                
+            } catch (error) {
+                console.error('Failed to start session:', error);
+                removeTypingIndicator();
+                alert('Ошибка запуска сессии');
+            }
+        }
+        
+        // Add typing indicator
+        function addTypingIndicator() {
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'chat-message chat-message-user typing-indicator';
+            typingDiv.id = 'typingIndicator';
+            typingDiv.innerHTML = `
+                <div class="message-avatar">${currentSession?.character_info?.emoji || '🙂'}</div>
+                <div class="message-content typing-dots">
+                    <span>.</span><span>.</span><span>.</span>
+                </div>
+            `;
+            chatMessages.appendChild(typingDiv);
+        }
+        
+        // Remove typing indicator
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) indicator.remove();
+        }
+
+        // Add message to chat
+        function addMessage(sender, text, isSystem = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message chat-message-${sender}`;
+            if (isSystem) messageDiv.classList.add('chat-message-system');
+            
+            const emoji = sender === 'user' ? currentSession.character_info.emoji : '👤';
+            
+            messageDiv.innerHTML = `
+                <div class="message-avatar">${emoji}</div>
+                <div class="message-content">${text}</div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Submit answer
+        async function submitAnswer() {
+            const answer = answerInput.value.trim();
+            if (!answer) {
+                alert('Напишите ответ!');
+                return;
+            }
+            
+            // Add operator's answer to chat
+            addMessage('operator', answer);
+            
+            // Disable input
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path d="M12 6v6l4 2" stroke-width="2" stroke-linecap="round"/></svg> Оценка...';
+            answerInput.disabled = true;
+            
+            try {
+                const response = await fetch('/api/simulator/respond', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({answer})
+                });
+                
+                const data = await response.json();
+                
+                // Show evaluation
+                showEvaluation(data);
+                
+                // Update score
+                const currentScore = parseInt(currentScoreEl.textContent);
+                currentScoreEl.textContent = currentScore + data.score;
+                
+                // Clear input
+                answerInput.value = '';
+                
+            } catch (error) {
+                console.error('Failed to submit answer:', error);
+                alert('Ошибка отправки ответа');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Отправить';
+                answerInput.disabled = false;
+            }
+        }
+        
+        submitBtn.addEventListener('click', submitAnswer);
+        
+        // Enter to submit (Shift+Enter for new line)
+        answerInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitAnswer();
+            }
+        });
+
+        // Show evaluation results as chat messages
+        function showEvaluation(data) {
+            // Add score message
+            const scoreEmoji = data.score >= 80 ? '🎉' : data.score >= 60 ? '👍' : '📝';
+            addMessage('system', `${scoreEmoji} <strong>Оценка: ${data.score} баллов</strong>`, true);
+            
+            // Add feedback
+            addMessage('system', `💬 <strong>Обратная связь:</strong><br>${data.feedback}`, true);
+            
+            // Add suggestion
+            addMessage('system', `✨ <strong>Эталонный ответ:</strong><br>${data.ai_suggestion}`, true);
+            
+            // Continue automatically
+            if (!data.session_complete) {
+                setTimeout(() => nextQuestion(data), 1500);
+            } else {
+                setTimeout(() => showResults(data), 1500);
+            }
+        }
+
+        // Next question - automatic
+        function nextQuestion(data) {
+            // Update progress
+            currentQuestionEl.textContent = data.current_question + 1;
+            progressFill.style.width = `${((data.current_question + 1) / data.questions_total) * 100}%`;
+            
+            // Add new question
+            addMessage('user', data.next_question);
+            
+            // Reset input
+            answerInput.value = '';
+            answerInput.disabled = false;
+            answerInput.focus();
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Отправить';
+            
+            // Show answer container
+            answerContainer.style.display = 'block';
+        }
+
+        // Show results
+        function showResults(data) {
+            document.getElementById('finalScore').textContent = data.total_score;
+            document.getElementById('avgScore').textContent = Math.round(data.average_score);
+            document.getElementById('questionsAnswered').textContent = data.history.length;
+            
+            // Show detailed history
+            const historyContainer = document.getElementById('resultsHistory');
+            historyContainer.innerHTML = '<h3>Детальная статистика:</h3>';
+            
+            data.history.forEach((item, index) => {
+                const scoreClass = item.score >= 80 ? 'excellent' : item.score >= 60 ? 'good' : 'poor';
+                const historyItem = document.createElement('div');
+                historyItem.className = 'history-item';
+                historyItem.innerHTML = `
+                    <div class="history-item-header">
+                        <span class="history-item-number">Вопрос ${index + 1}</span>
+                        <span class="history-item-score history-score-${scoreClass}">${item.score} баллов</span>
+                    </div>
+                    <div class="history-item-question"><strong>Q:</strong> ${item.question}</div>
+                    <div class="history-item-answer"><strong>A:</strong> ${item.user_answer}</div>
+                    <div class="history-item-feedback"><strong>Feedback:</strong> ${item.feedback}</div>
+                `;
+                historyContainer.appendChild(historyItem);
+            });
+            
+            // Switch to results screen
+            gameScreen.style.display = 'none';
+            resultsScreen.style.display = 'block';
+        }
+
+        // Get hint
+        hintBtn.addEventListener('click', async () => {
+            try {
+                hintBtn.disabled = true;
+                hintBtn.textContent = 'Загрузка...';
+                
+                const response = await fetch('/api/simulator/hint');
+                const data = await response.json();
+                
+                // Вычитаем баллы сразу
+                const currentScore = parseInt(currentScoreEl.textContent);
+                currentScoreEl.textContent = currentScore - 10;
+                
+                // Показываем подсказку с информацией о штрафе
+                addMessage('system', `💡 <strong>Подсказка (-10 баллов):</strong><br>${data.hint}`, true);
+                
+                // Восстанавливаем кнопку
+                hintBtn.disabled = false;
+                hintBtn.innerHTML = `
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Подсказка
+                `;
+                
+            } catch (error) {
+                console.error('Failed to get hint:', error);
+                alert('Ошибка получения подсказки');
+                hintBtn.disabled = false;
+                hintBtn.innerHTML = `
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Подсказка
+                `;
+            }
+        });
+
+        // End game
+        endGameBtn.addEventListener('click', async () => {
+            if (!confirm('Вы уверены, что хотите завершить тренировку?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/simulator/end', {method: 'POST'});
+                const data = await response.json();
+                
+                if (data.stats) {
+                    showResults(data.stats);
+                } else {
+                    restartGame();
+                }
+            } catch (error) {
+                console.error('Failed to end game:', error);
+                restartGame();
+            }
+        });
+
+        // Restart game
+        restartBtn.addEventListener('click', restartGame);
+
+        function restartGame() {
+            characterSelection.style.display = 'block';
+            gameScreen.style.display = 'none';
+            resultsScreen.style.display = 'none';
+            currentSession = null;
+            loadCharacters();
+        }
+
+        // Initialize
+        loadCharacters();
+        
+        // Sidebar toggle function
+        function toggleSidebar() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+        }
+    </script>
+    </div> <!-- .layout -->
+</body>
+</html>

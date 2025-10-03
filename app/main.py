@@ -26,6 +26,7 @@ from app.rag_service import RAGService
 from app.realtime import ConnectionManager
 from app.retrieval import KnowledgeBase
 from app.schemas import TicketRead, KnowledgeStats, MessageCreate, MessageRead, ConversationRead
+from app.simulator_service import SimulatorService
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     rag_service = RAGService(config)
     await rag_service.prepare()
     app.state.rag = rag_service
+    
+    # Инициализируем симулятор
+    simulator_service = SimulatorService(rag_service)
+    app.state.simulator = simulator_service
 
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     bot: Bot | None = None
@@ -148,6 +153,13 @@ async def dashboard(request: Request):
     if not auth.is_authenticated_request(request):
         return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse("dashboard.html", {"request": request})
+
+
+@app.get("/simulator", response_class=HTMLResponse)
+async def simulator(request: Request):
+    if not auth.is_authenticated_request(request):
+        return RedirectResponse(url="/login", status_code=303)
+    return templates.TemplateResponse("simulator.html", {"request": request})
 
 
 @app.get("/api/dashboard/stats")
@@ -455,6 +467,140 @@ async def websocket_messages(websocket: WebSocket, conversation_id: int) -> None
         await connection_manager.unregister_chat(conversation_id, websocket)
         if websocket.client_state.name == "CONNECTED":
             await websocket.close()
+
+
+# ==================== Simulator API ====================
+
+@app.get("/api/simulator/characters")
+async def get_simulator_characters(request: Request):
+    """Получить список персонажей для выбора"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    simulator: SimulatorService = request.app.state.simulator
+    return {"characters": simulator.CHARACTERS}
+
+
+@app.post("/api/simulator/start")
+async def start_simulator_session(request: Request, character: str = "medium"):
+    """Начать новую сессию симулятора"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Используем session cookie как user_id
+    settings = auth.get_settings()
+    user_id = request.cookies.get(settings.cookie_name, "anonymous")
+    simulator: SimulatorService = request.app.state.simulator
+    
+    # Начинаем сессию
+    session = simulator.start_session(user_id, character)
+    
+    # Генерируем первый вопрос
+    question = simulator.generate_question(session)
+    
+    return {
+        "session_id": user_id,
+        "character": session.character,
+        "character_info": simulator.CHARACTERS.get(session.character, {}),
+        "questions_total": session.questions_count,
+        "current_question": session.current_question + 1,
+        "question": question.question,
+    }
+
+
+@app.post("/api/simulator/respond")
+async def respond_to_question(request: Request):
+    """Отправить ответ на вопрос"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    settings = auth.get_settings()
+    user_id = request.cookies.get(settings.cookie_name, "anonymous")
+    simulator: SimulatorService = request.app.state.simulator
+    
+    data = await request.json()
+    user_answer = data.get("answer", "")
+    
+    session = simulator.get_session(user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Оцениваем ответ
+    evaluation = simulator.evaluate_response(session, user_answer)
+    
+    # Сохраняем результат
+    session.add_response(user_answer, evaluation)
+    
+    # Проверяем, завершена ли сессия
+    is_complete = session.is_complete()
+    
+    response_data = {
+        "score": evaluation.score,
+        "feedback": evaluation.feedback,
+        "ai_suggestion": evaluation.ai_suggestion,
+        "is_correct": evaluation.is_correct,
+        "session_complete": is_complete,
+        "current_question": session.current_question,
+        "questions_total": session.questions_count,
+    }
+    
+    # Если не завершена - генерируем следующий вопрос
+    if not is_complete:
+        next_question = simulator.generate_question(session)
+        response_data["next_question"] = next_question.question
+    else:
+        # Сессия завершена - отправляем статистику
+        response_data["total_score"] = session.total_score
+        response_data["average_score"] = session.get_average_score()
+        response_data["history"] = session.history
+    
+    return response_data
+
+
+@app.get("/api/simulator/hint")
+async def get_hint(request: Request):
+    """Получить подсказку для текущего вопроса"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    settings = auth.get_settings()
+    user_id = request.cookies.get(settings.cookie_name, "anonymous")
+    simulator: SimulatorService = request.app.state.simulator
+    
+    session = simulator.get_session(user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    hint = simulator.get_hint(session)
+    
+    return {"hint": hint}
+
+
+@app.post("/api/simulator/end")
+async def end_simulator_session(request: Request):
+    """Завершить сессию досрочно"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    settings = auth.get_settings()
+    user_id = request.cookies.get(settings.cookie_name, "anonymous")
+    simulator: SimulatorService = request.app.state.simulator
+    
+    session = simulator.get_session(user_id)
+    if session:
+        final_stats = {
+            "questions_answered": len(session.history),
+            "total_score": session.total_score,
+            "average_score": session.get_average_score(),
+            "history": session.history,
+        }
+        simulator.end_session(user_id)
+        return {"message": "Session ended", "stats": final_stats}
+    
+    return {"message": "No active session"}
+
+
+
 
 
 
