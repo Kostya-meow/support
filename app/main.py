@@ -45,6 +45,129 @@ def _serialize_message(message: models.Message) -> dict:
     return MessageRead.from_orm(message).model_dump(mode="json")
 
 
+async def update_popularity_scores():
+    """Фоновая задача для обновления популярности вопросов каждые 5 минут"""
+    from sqlalchemy import select, text
+    from app.models import KnowledgeEntry, Message
+    from datetime import datetime, timedelta
+    import numpy as np
+    from sentence_transformers import SentenceTransformer
+    
+    # Получаем embedder из конфига
+    embedder = None
+    
+    while True:
+        try:
+            await asyncio.sleep(300)  # 5 минут
+            
+            logger.info("Обновление рейтинга популярности вопросов...")
+            
+            # Инициализируем embedder при первом запуске
+            if embedder is None:
+                config = load_config()
+                embedding_cfg = config.get("embeddings", {})
+                model_name = embedding_cfg.get("model_name", "ai-forever/sbert_large_nlu_ru")
+                device = embedding_cfg.get("device", "cpu")
+                embedder = SentenceTransformer(model_name, device=device)
+                logger.info(f"Embedder инициализирован: {model_name}")
+            
+            async with KnowledgeSessionLocal() as k_session:
+                async with TicketsSessionLocal() as t_session:
+                    # Получаем все сообщения за последние 24 часа
+                    yesterday = datetime.utcnow() - timedelta(hours=24)
+                    
+                    # Получаем все вопросы пользователей (не системные)
+                    stmt = select(Message).where(
+                        Message.created_at >= yesterday,
+                        Message.is_system == False,
+                        Message.sender == "user"
+                    )
+                    result = await t_session.execute(stmt)
+                    recent_messages = result.scalars().all()
+                    
+                    # Получаем все записи базы знаний
+                    kb_stmt = select(KnowledgeEntry)
+                    kb_result = await k_session.execute(kb_stmt)
+                    kb_entries = kb_result.scalars().all()
+                    
+                    if not kb_entries:
+                        logger.info("Нет записей в базе знаний")
+                        continue
+                    
+                    if not recent_messages:
+                        logger.info("Нет пользовательских сообщений за последние 24 часа")
+                        # Сбрасываем все счетчики на 0
+                        await k_session.execute(
+                            text("UPDATE knowledge_entries SET popularity_score = 0.0")
+                        )
+                        await k_session.commit()
+                        continue
+                    
+                    # Получаем текст всех пользовательских сообщений
+                    user_queries = [msg.content for msg in recent_messages if msg.content]
+                    if not user_queries:
+                        logger.info("Нет текстовых сообщений от пользователей")
+                        continue
+                    
+                    # Вычисляем embeddings для пользовательских запросов
+                    logger.info(f"Вычисление embeddings для {len(user_queries)} запросов...")
+                    query_embeddings = await asyncio.to_thread(embedder.encode, user_queries, convert_to_numpy=True)
+                    
+                    # Подсчитываем популярность каждого вопроса на основе similarity
+                    question_scores = {}
+                    for entry in kb_entries:
+                        if not entry.embedding:
+                            # Если нет embedding, вычисляем его
+                            entry_embedding = await asyncio.to_thread(
+                                embedder.encode, entry.question, convert_to_numpy=True
+                            )
+                        else:
+                            # Используем существующий embedding
+                            entry_embedding = np.frombuffer(entry.embedding, dtype=np.float32)
+                        
+                        # Вычисляем cosine similarity с каждым запросом пользователя
+                        similarities = []
+                        for query_emb in query_embeddings:
+                            # Cosine similarity
+                            similarity = np.dot(entry_embedding, query_emb) / (
+                                np.linalg.norm(entry_embedding) * np.linalg.norm(query_emb)
+                            )
+                            similarities.append(similarity)
+                        
+                        # Считаем сколько запросов имеют similarity > 0.7 (релевантные)
+                        relevant_count = sum(1 for sim in similarities if sim > 0.7)
+                        question_scores[entry.id] = relevant_count
+                    
+                    # Нормализуем счетчики к диапазону 0-1
+                    max_count = max(question_scores.values()) if question_scores else 1
+                    if max_count == 0:
+                        max_count = 1
+                    
+                    # Обновляем базу данных
+                    for entry_id, count in question_scores.items():
+                        normalized_score = count / max_count
+                        await k_session.execute(
+                            text("UPDATE knowledge_entries SET popularity_score = :score WHERE id = :id"),
+                            {"score": normalized_score, "id": entry_id}
+                        )
+                    
+                    await k_session.commit()
+                    logger.info(f"✅ Обновлено {len(question_scores)} записей. Max count: {max_count}")
+                    
+                    # Показываем топ-3 для отладки
+                    top_entries = sorted(question_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+                    for entry_id, count in top_entries:
+                        entry = next((e for e in kb_entries if e.id == entry_id), None)
+                        if entry:
+                            logger.info(f"  Топ: '{entry.question[:50]}...' - {count} релевантных запросов")
+                    
+        except asyncio.CancelledError:
+            logger.info("Задача обновления рейтинга остановлена")
+            break
+        except Exception as e:
+            logger.exception(f"Ошибка при обновлении рейтинга: {e}")
+
+
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db()
     app.state.connection_manager = connection_manager
@@ -72,6 +195,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     bot: Bot | None = None
     dispatcher = None
     bot_task: asyncio.Task | None = None
+    popularity_task: asyncio.Task | None = None
 
     if token:
         bot = Bot(token=token)
@@ -83,6 +207,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning("TELEGRAM_BOT_TOKEN is not set. Telegram integration is disabled.")
         app.state.bot = None
         app.state.dispatcher = None
+    
+    # Запускаем фоновую задачу обновления популярности
+    popularity_task = asyncio.create_task(update_popularity_scores())
+    logger.info("✅ Фоновая задача обновления популярности запущена")
 
     try:
         yield
@@ -91,6 +219,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             bot_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await bot_task
+        if popularity_task:
+            popularity_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await popularity_task
         if bot:
             await bot.session.close()
         await connection_manager.close_all()
@@ -160,6 +292,119 @@ async def dashboard(request: Request):
 @require_permission("simulator")
 async def simulator(request: Request):
     return templates.TemplateResponse("simulator.html", {"request": request})
+
+
+# ==================== FAQ (PUBLIC) ====================
+
+@app.get("/faq", response_class=HTMLResponse)
+async def faq_page(request: Request):
+    """Публичная страница FAQ без аутентификации"""
+    return templates.TemplateResponse("faq.html", {"request": request})
+
+
+@app.get("/api/faq")
+async def get_faq(session: AsyncSession = Depends(get_knowledge_session)):
+    """API для получения всех вопросов отсортированных по популярности"""
+    from sqlalchemy import select, desc
+    from app.models import KnowledgeEntry
+    
+    # Получаем все записи, отсортированные по популярности
+    stmt = select(KnowledgeEntry).order_by(desc(KnowledgeEntry.popularity_score))
+    result = await session.execute(stmt)
+    entries = result.scalars().all()
+    
+    # Формируем ответ
+    items = []
+    for entry in entries:
+        items.append({
+            "id": entry.id,
+            "question": entry.question,
+            "answer": entry.answer,
+            "popularity_score": entry.popularity_score
+        })
+    
+    return {"items": items}
+
+
+@app.get("/api/faq/search")
+async def search_faq(q: str, session: AsyncSession = Depends(get_knowledge_session)):
+    """Умный поиск по FAQ с использованием embeddings"""
+    from sqlalchemy import select
+    from app.models import KnowledgeEntry
+    import numpy as np
+    
+    if not q or len(q.strip()) < 2:
+        return {"items": []}
+    
+    query_text = q.strip()
+    
+    # Получаем knowledge_base из app state
+    knowledge_base = app.state.knowledge_base
+    
+    try:
+        # Вычисляем embedding для запроса
+        query_embedding = await asyncio.to_thread(
+            knowledge_base.model.encode, 
+            query_text, 
+            convert_to_numpy=True
+        )
+        
+        # Получаем все записи
+        stmt = select(KnowledgeEntry)
+        result = await session.execute(stmt)
+        entries = result.scalars().all()
+        
+        if not entries:
+            return {"items": []}
+        
+        # Вычисляем similarity для каждой записи
+        results = []
+        for entry in entries:
+            if entry.embedding:
+                entry_embedding = np.frombuffer(entry.embedding, dtype=np.float32)
+                
+                # Cosine similarity
+                similarity = np.dot(query_embedding, entry_embedding) / (
+                    np.linalg.norm(query_embedding) * np.linalg.norm(entry_embedding)
+                )
+                
+                # Добавляем только релевантные результаты (similarity > 0.3)
+                if similarity > 0.3:
+                    results.append({
+                        "id": entry.id,
+                        "question": entry.question,
+                        "answer": entry.answer,
+                        "popularity_score": entry.popularity_score,
+                        "similarity": float(similarity)
+                    })
+        
+        # Сортируем по similarity (от большего к меньшему)
+        results.sort(key=lambda x: x["similarity"], reverse=True)
+        
+        # Возвращаем топ-20 результатов
+        return {"items": results[:20]}
+        
+    except Exception as e:
+        logger.exception(f"Search error: {e}")
+        # Fallback на простой текстовый поиск
+        stmt = select(KnowledgeEntry)
+        result = await session.execute(stmt)
+        entries = result.scalars().all()
+        
+        query_lower = query_text.lower()
+        filtered = [
+            {
+                "id": e.id,
+                "question": e.question,
+                "answer": e.answer,
+                "popularity_score": e.popularity_score,
+                "similarity": 0.5
+            }
+            for e in entries
+            if query_lower in e.question.lower() or query_lower in e.answer.lower()
+        ]
+        
+        return {"items": filtered[:20]}
 
 
 @app.get("/api/dashboard/stats")

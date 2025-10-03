@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Часто задаваемые вопросы - Support Desk</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+            animation: fadeInDown 0.6s ease;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .search-box {
+            background: white;
+            border-radius: 50px;
+            padding: 15px 30px;
+            margin-bottom: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            animation: fadeIn 0.8s ease;
+        }
+
+        .search-box input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 1.1rem;
+            padding: 5px;
+        }
+
+        .search-box svg {
+            width: 24px;
+            height: 24px;
+            margin-right: 15px;
+            opacity: 0.5;
+        }
+
+        .popular-section {
+            margin-bottom: 40px;
+            animation: fadeIn 1s ease;
+        }
+
+        .section-title {
+            color: white;
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title::before {
+            content: "🔥";
+            font-size: 2rem;
+        }
+
+        .faq-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .faq-card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            animation: fadeInUp 0.6s ease;
+        }
+
+        .faq-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        }
+
+        .faq-card.popular {
+            border: 2px solid #ffd700;
+            background: linear-gradient(135deg, #fff9e6 0%, #ffffff 100%);
+        }
+
+        .faq-card.popular::before {
+            content: "⭐ Популярный";
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #ffd700;
+            color: #333;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .popularity-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: #667eea;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .question {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #1a202c;
+            margin-bottom: 12px;
+            line-height: 1.4;
+        }
+
+        .answer {
+            color: #4a5568;
+            line-height: 1.6;
+            display: none;
+        }
+
+        .faq-card.expanded .answer {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .expand-icon {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            width: 32px;
+            height: 32px;
+            background: #f7fafc;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .faq-card.expanded .expand-icon {
+            transform: rotate(180deg);
+            background: #667eea;
+            color: white;
+        }
+
+        .no-results {
+            text-align: center;
+            color: white;
+            font-size: 1.5rem;
+            padding: 60px 20px;
+            display: none;
+        }
+
+        .no-results svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .loading {
+            text-align: center;
+            color: white;
+            font-size: 1.5rem;
+            padding: 60px 20px;
+        }
+
+        .loading::after {
+            content: "...";
+            animation: dots 1.5s infinite;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes dots {
+            0%, 20% { content: "."; }
+            40% { content: ".."; }
+            60%, 100% { content: "..."; }
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .faq-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>❓ Часто задаваемые вопросы</h1>
+            <p>Найдите ответы на популярные вопросы</p>
+        </div>
+
+        <div class="search-box">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input type="text" id="searchInput" placeholder="Поиск по вопросам...">
+        </div>
+
+        <div class="loading" id="loading">Загрузка вопросов</div>
+
+        <div id="popularSection" class="popular-section" style="display: none;">
+            <div class="section-title">Самые популярные</div>
+            <div class="faq-grid" id="popularGrid"></div>
+        </div>
+
+        <div id="allSection" style="display: none;">
+            <div class="section-title" style="color: white;">Все вопросы</div>
+            <div class="faq-grid" id="allGrid"></div>
+        </div>
+
+        <div class="no-results" id="noResults">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p>Ничего не найдено</p>
+            <p style="font-size: 1rem; opacity: 0.7; margin-top: 10px;">Попробуйте изменить запрос</p>
+        </div>
+    </div>
+
+    <script>
+        let allFAQs = [];
+        let filteredFAQs = [];
+
+        async function loadFAQs() {
+            try {
+                const response = await fetch('/api/faq');
+                if (!response.ok) throw new Error('Failed to load FAQs');
+                
+                const data = await response.json();
+                allFAQs = data.items;
+                filteredFAQs = allFAQs;
+                
+                document.getElementById('loading').style.display = 'none';
+                renderFAQs();
+            } catch (error) {
+                console.error('Error loading FAQs:', error);
+                document.getElementById('loading').textContent = 'Ошибка загрузки';
+            }
+        }
+
+        function renderFAQs() {
+            const popularGrid = document.getElementById('popularGrid');
+            const allGrid = document.getElementById('allGrid');
+            const popularSection = document.getElementById('popularSection');
+            const allSection = document.getElementById('allSection');
+            const noResults = document.getElementById('noResults');
+
+            popularGrid.innerHTML = '';
+            allGrid.innerHTML = '';
+
+            if (filteredFAQs.length === 0) {
+                popularSection.style.display = 'none';
+                allSection.style.display = 'none';
+                noResults.style.display = 'block';
+                return;
+            }
+
+            noResults.style.display = 'none';
+
+            // Топ-3 популярных
+            const popular = filteredFAQs.slice(0, 3);
+            if (popular.length > 0) {
+                popularSection.style.display = 'block';
+                popular.forEach((faq, index) => {
+                    popularGrid.appendChild(createFAQCard(faq, true, index));
+                });
+            }
+
+            // Остальные
+            const rest = filteredFAQs.slice(3);
+            if (rest.length > 0) {
+                allSection.style.display = 'block';
+                rest.forEach((faq, index) => {
+                    allGrid.appendChild(createFAQCard(faq, false, index + 3));
+                });
+            }
+        }
+
+        function createFAQCard(faq, isPopular, index) {
+            const card = document.createElement('div');
+            card.className = 'faq-card' + (isPopular ? ' popular' : '');
+            card.style.animationDelay = `${index * 0.1}s`;
+
+            const popularityBadge = faq.popularity_score > 0 ? 
+                `<div class="popularity-badge">
+                    🔥 ${Math.round(faq.popularity_score * 100)}%
+                </div>` : '';
+
+            card.innerHTML = `
+                ${popularityBadge}
+                <div class="question">${faq.question}</div>
+                <div class="answer">${faq.answer}</div>
+                <div class="expand-icon">▼</div>
+            `;
+
+            card.addEventListener('click', () => {
+                card.classList.toggle('expanded');
+            });
+
+            return card;
+        }
+
+        // Поиск
+        const searchInput = document.getElementById('searchInput');
+        let searchTimeout;
+        let isSearching = false;
+
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            const query = e.target.value.trim();
+            
+            searchTimeout = setTimeout(async () => {
+                if (query === '') {
+                    // Пустой запрос - показываем все
+                    filteredFAQs = allFAQs;
+                    renderFAQs();
+                } else if (query.length >= 2) {
+                    // Умный поиск через API
+                    await performSmartSearch(query);
+                }
+            }, 500); // Увеличили до 500ms для более комфортного ввода
+        });
+
+        async function performSmartSearch(query) {
+            if (isSearching) return;
+            
+            isSearching = true;
+            try {
+                const response = await fetch(`/api/faq/search?q=${encodeURIComponent(query)}`);
+                if (!response.ok) {
+                    // Fallback на клиентский поиск
+                    performLocalSearch(query);
+                    return;
+                }
+                
+                const data = await response.json();
+                filteredFAQs = data.items;
+                renderFAQs();
+            } catch (error) {
+                console.error('Search error:', error);
+                // Fallback на клиентский поиск
+                performLocalSearch(query);
+            } finally {
+                isSearching = false;
+            }
+        }
+
+        function performLocalSearch(query) {
+            const queryLower = query.toLowerCase();
+            filteredFAQs = allFAQs.filter(faq => 
+                faq.question.toLowerCase().includes(queryLower) ||
+                faq.answer.toLowerCase().includes(queryLower)
+            );
+            renderFAQs();
+        }
+
+        // Загрузка при открытии страницы
+        loadFAQs();
+
+        // Обновление каждые 5 минут
+        setInterval(loadFAQs, 5 * 60 * 1000);
+    </script>
+</body>
+</html>

@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import tempfile
+from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 USER_SENDER = "user"
 BOT_SENDER = "bot"
 OPERATOR_REQUEST_CALLBACK = "request_operator"
+
+# Словарь блокировок для каждого пользователя (предотвращение спама)
+user_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 REQUEST_OPERATOR_KEYBOARD = InlineKeyboardMarkup(
     inline_keyboard=[[InlineKeyboardButton(text="Позвать оператора", callback_data=OPERATOR_REQUEST_CALLBACK)]]
@@ -177,6 +181,54 @@ def create_dispatcher(
         await _broadcast_tickets()
         return ticket.id
 
+    async def _get_average_response_time() -> str:
+        """Вычисляет среднее время ответа оператора"""
+        try:
+            async with session_maker() as session:
+                from sqlalchemy import select, func
+                from datetime import datetime, timedelta
+                
+                # Получаем закрытые заявки за последние 30 дней
+                thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+                stmt = select(models.Ticket).where(
+                    models.Ticket.status == models.TicketStatus.CLOSED,
+                    models.Ticket.created_at >= thirty_days_ago
+                )
+                result = await session.execute(stmt)
+                tickets = result.scalars().all()
+                
+                if not tickets:
+                    return "обычно быстро"
+                
+                # Вычисляем среднее время между созданием и первым ответом оператора
+                response_times = []
+                for ticket in tickets:
+                    messages = await crud.list_messages_for_ticket(session, ticket.id)
+                    # Находим первое сообщение оператора
+                    operator_message = next((m for m in messages if m.sender == "operator"), None)
+                    if operator_message and ticket.created_at:
+                        delta = operator_message.created_at - ticket.created_at
+                        response_times.append(delta.total_seconds() / 60)  # в минутах
+                
+                if not response_times:
+                    return "обычно быстро"
+                
+                avg_minutes = sum(response_times) / len(response_times)
+                
+                if avg_minutes < 1:
+                    return "менее минуты"
+                elif avg_minutes < 5:
+                    return f"{int(avg_minutes)} мин"
+                elif avg_minutes < 60:
+                    return f"{int(avg_minutes)} минут"
+                else:
+                    hours = int(avg_minutes / 60)
+                    return f"около {hours} ч"
+                    
+        except Exception as e:
+            logger.warning(f"Failed to calculate average response time: {e}")
+            return "обычно быстро"
+
     async def _answer_with_rag_only(message: Message, user_text: str) -> None:
         """Отвечает пользователю через RAG без создания заявки"""
         try:
@@ -199,18 +251,54 @@ def create_dispatcher(
             return
 
         if rag_result.operator_requested:
-            # RAG решил, что нужен оператор - создаем заявку
-            ticket_id = await _create_ticket_and_add_message(message, user_text)
-            if rag_result.final_answer:
-                formatted_answer = f"<b>Бот:</b>\n{rag_result.final_answer}"
-                await message.answer(formatted_answer, parse_mode='HTML')
-                await _send_bot_message(ticket_id, rag_result.final_answer)
+            # RAG решил, что нужен оператор - показываем предложение
+            avg_response_time = await _get_average_response_time()
+            
+            # RAG уже вернул текст типа "Могу подключить оператора", не дублируем!
+            combined_text = (
+                f"<b>Бот:</b>\n"
+                f"{rag_result.final_answer}\n\n"
+                f"⏱ Среднее время ответа: <b>{avg_response_time}</b>\n\n"
+                f"Подключить?"
+            )
+            
+            # Создаем клавиатуру с кнопкой подтверждения
+            confirm_keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[[
+                    InlineKeyboardButton(text="✅ Да, подключить оператора", callback_data=OPERATOR_REQUEST_CALLBACK)
+                ]]
+            )
+            
+            await message.answer(combined_text, reply_markup=confirm_keyboard, parse_mode='HTML')
             return
 
         # Обычный ответ от бота
         answer_text = rag_result.final_answer or "Я пока не нашла ответ. Попробуйте уточнить вопрос."
         formatted_answer = f"<b>Бот:</b>\n{answer_text}"
-        await message.answer(formatted_answer, reply_markup=REQUEST_OPERATOR_KEYBOARD, parse_mode='HTML')
+        
+        # Показываем кнопку оператора ТОЛЬКО если уверенность низкая (confidence_score > 0.6)
+        # confidence_score - это evaluation score, чем выше, тем хуже качество ответа
+        if rag_result.confidence_score > 0.6:
+            # Низкая уверенность - предлагаем оператора с тем же единым форматом
+            avg_response_time = await _get_average_response_time()
+            
+            combined_text = (
+                f"<b>Бот:</b>\n{answer_text}\n\n"
+                f"Могу подключить оператора.\n"
+                f"⏱ Среднее время ответа: <b>{avg_response_time}</b>\n\n"
+                f"Подключить?"
+            )
+            
+            confirm_keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[[
+                    InlineKeyboardButton(text="✅ Да, подключить оператора", callback_data=OPERATOR_REQUEST_CALLBACK)
+                ]]
+            )
+            
+            await message.answer(combined_text, reply_markup=confirm_keyboard, parse_mode='HTML')
+        else:
+            # Уверенный ответ - кнопку не показываем
+            await message.answer(formatted_answer, parse_mode='HTML')
 
     async def _send_bot_message(ticket_id: int, text: str, is_system: bool = False) -> None:
         async with session_maker() as session:
@@ -222,75 +310,106 @@ def create_dispatcher(
     @router.message(CommandStart())
     async def on_start(message: Message) -> None:
         # При /start всегда отвечаем ботом, заявку не создаем
+        user_name = message.from_user.first_name if message.from_user else "пользователь"
         greeting = (
-            "Здравствуйте! Опишите проблему — постараюсь помочь. Если ответ не подойдёт, можно позвать оператора."
+            f"👋 Здравствуйте, {user_name}!\n\n"
+            "Я бот технической поддержки. Я могу помочь вам с:\n"
+            "• Ответами на часто задаваемые вопросы\n"
+            "• Решением технических проблем\n"
+            "• Консультацией по функциям системы\n\n"
+            "📚 <b>Популярные вопросы и ответы:</b>\n"
+            "Посмотрите наш FAQ: http://127.0.0.1:8000/faq\n\n"
+            "💬 Просто напишите ваш вопрос, и я постараюсь помочь!\n"
+            "Если мой ответ не подойдет, я смогу подключить оператора."
         )
         formatted_greeting = f"<b>Бот:</b>\n{greeting}"
-        await message.answer(formatted_greeting, reply_markup=REQUEST_OPERATOR_KEYBOARD, parse_mode='HTML')
+        await message.answer(formatted_greeting, parse_mode='HTML')
 
     @router.message(F.voice)
     async def on_voice(message: Message) -> None:
         """Обработчик голосовых сообщений"""
-        try:
-            # Получаем файл голосового сообщения
-            voice = message.voice
-            if not voice:
-                await message.answer("Не удалось получить голосовое сообщение.")
-                return
-            
-            # Уведомляем пользователя о начале обработки
-            processing_msg = await message.answer("🎤 Обрабатываю голосовое сообщение...")
-            
-            # Получаем Bot из параметров dispatcher
-            bot = message.bot
-            
-            # Скачиваем файл во временную папку
-            with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as temp_file:
-                await bot.download(voice.file_id, temp_file.name)
-                temp_file_path = temp_file.name
-            
+        chat_id = message.chat.id
+        lock = user_locks[chat_id]
+        
+        # Проверяем блокировку
+        if lock.locked():
+            logger.info(f"User {chat_id} is spamming voice messages, ignoring")
+            await message.answer("⏳ Пожалуйста, дождитесь ответа на предыдущее сообщение")
+            return
+        
+        async with lock:
             try:
-                # Преобразуем голос в текст
-                transcribed_text = await rag_service.speech_to_text.transcribe_audio(temp_file_path)
-                
-                if not transcribed_text:
-                    await processing_msg.edit_text("❌ Не удалось распознать речь. Попробуйте еще раз или напишите текстом.")
+                # Получаем файл голосового сообщения
+                voice = message.voice
+                if not voice:
+                    await message.answer("Не удалось получить голосовое сообщение.")
                     return
                 
-                # Удаляем сообщение "Обрабатываю..."
-                await processing_msg.delete()
-
-                # Сохраняем расшифровку только для оператора
-                ticket_id, has_ticket = await _persist_message(message, transcribed_text)
-
-                # Если есть заявка, сообщение уже сохранено как от пользователя — ничего не отправляем от бота
-                # Если нет заявки — просто ответить пользователю
-                if not has_ticket or not ticket_id:
-                    await _answer_with_rag_only(message, transcribed_text)
+                # Уведомляем пользователя о начале обработки
+                processing_msg = await message.answer("🎤 Обрабатываю голосовое сообщение...")
                 
-            finally:
-                # Удаляем временный файл
-                if os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
+                # Получаем Bot из параметров dispatcher
+                bot = message.bot
+                
+                # Скачиваем файл во временную папку
+                with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as temp_file:
+                    await bot.download(voice.file_id, temp_file.name)
+                    temp_file_path = temp_file.name
+                
+                try:
+                    # Преобразуем голос в текст
+                    transcribed_text = await rag_service.speech_to_text.transcribe_audio(temp_file_path)
                     
-        except Exception as e:
-            logger.error(f"Error processing voice message: {e}")
-            await message.answer("❌ Произошла ошибка при обработке голосового сообщения. Попробуйте написать текстом.")
+                    if not transcribed_text:
+                        await processing_msg.edit_text("❌ Не удалось распознать речь. Попробуйте еще раз или напишите текстом.")
+                        return
+                    
+                    # Удаляем сообщение "Обрабатываю..."
+                    await processing_msg.delete()
+
+                    # Сохраняем расшифровку только для оператора
+                    ticket_id, has_ticket = await _persist_message(message, transcribed_text)
+
+                    # Если есть заявка, сообщение уже сохранено как от пользователя — ничего не отправляем от бота
+                    # Если нет заявки — просто ответить пользователю
+                    if not has_ticket or not ticket_id:
+                        await _answer_with_rag_only(message, transcribed_text)
+                    
+                finally:
+                    # Удаляем временный файл
+                    if os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+                        
+            except Exception as e:
+                logger.error(f"Error processing voice message: {e}")
+                await message.answer("❌ Произошла ошибка при обработке голосового сообщения. Попробуйте написать текстом.")
 
     @router.message(F.text)
     async def on_text(message: Message) -> None:
         user_text = message.text or ""
+        chat_id = message.chat.id
         
-        # Проверяем, есть ли открытая заявка
-        ticket_id, has_ticket = await _persist_message(message, user_text)
+        # Получаем блокировку для этого пользователя
+        lock = user_locks[chat_id]
         
-        if has_ticket and ticket_id:
-            # Есть открытая заявка - пользователь общается с оператором
-            # Ничего не отвечаем от бота
+        # Проверяем, не обрабатывается ли уже другое сообщение
+        if lock.locked():
+            logger.info(f"User {chat_id} is spamming, ignoring message")
+            await message.answer("⏳ Пожалуйста, дождитесь ответа на предыдущее сообщение")
             return
-        else:
-            # Нет открытой заявки - обычное общение с ботом
-            await _answer_with_rag_only(message, user_text)
+        
+        # Захватываем блокировку на время обработки
+        async with lock:
+            # Проверяем, есть ли открытая заявка
+            ticket_id, has_ticket = await _persist_message(message, user_text)
+            
+            if has_ticket and ticket_id:
+                # Есть открытая заявка - пользователь общается с оператором
+                # Ничего не отвечаем от бота
+                return
+            else:
+                # Нет открытой заявки - обычное общение с ботом
+                await _answer_with_rag_only(message, user_text)
 
     @router.message(F.caption)
     async def on_caption(message: Message) -> None:
@@ -372,13 +491,23 @@ def create_dispatcher(
             if ticket.status != models.TicketStatus.OPEN:
                 await crud.update_ticket_status(session, ticket.id, models.TicketStatus.OPEN)
             
+            # Генерируем summary для новой заявки
+            try:
+                messages = await crud.list_messages_for_ticket(session, ticket.id)
+                if messages:
+                    summary = await rag_service.generate_ticket_summary(messages, ticket_id=ticket.id)
+                    await crud.update_ticket_summary(session, ticket.id, summary)
+                    logger.info(f"Generated summary for ticket {ticket.id}")
+            except Exception as e:
+                logger.warning(f"Failed to generate summary: {e}")
+            
             tickets_payload = await _serialize_tickets(session)
             
         rag_service.reset_history(ticket.id)
-        await callback_query.answer("Оператор скоро подключится")
+        await callback_query.answer("✅ Заявка создана")
         await connection_manager.broadcast_conversations(tickets_payload)
         
-        notice = "Мы уведомили оператора, ожидайте ответа."
+        notice = "✅ Заявка создана. Ожидайте ответа оператора."
         await callback_query.message.answer(notice)
         await _send_bot_message(ticket.id, notice, is_system=True)
 

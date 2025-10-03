@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, LargeBinary, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -74,3 +74,4 @@ class KnowledgeEntry(KnowledgeBase):
     answer = Column(Text, nullable=False)
     embedding = Column(LargeBinary, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    popularity_score = Column(Float, default=0.0, nullable=False)

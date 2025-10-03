@@ -58,6 +58,7 @@ class RAGResult:
     final_answer: str
     operator_requested: bool = False
     filter_info: dict[str, Any] | None = None
+    confidence_score: float = 1.0  # Добавляем оценку уверенности (чем выше, тем хуже)
 
 
 class ToxicityClassifier:
@@ -524,7 +525,7 @@ class RAGService:
         filter_info: dict[str, Any] = {}
         query = user_message.strip()
         if not query:
-            return RAGResult("Пока не вижу вопроса. Напишите подробнее?", False, filter_info)
+            return RAGResult("Пока не вижу вопроса. Напишите подробнее?", False, filter_info, 0.0)
 
         # Сохраняем сообщение пользователя в историю чата
         try:
@@ -545,7 +546,7 @@ class RAGService:
             except Exception as e:
                 print(f"RAG DEBUG: Failed to save bot toxicity message: {e}")
                 logging.warning(f"Failed to save bot message to chat history: {e}")
-            return RAGResult(message, False, filter_info)
+            return RAGResult(message, False, filter_info, 0.0)
 
         preprocessed_query = _preprocess(query, self.removal_list)
         filter_error, filter_details = self._apply_filter(preprocessed_query)
@@ -556,7 +557,7 @@ class RAGService:
                 self.add_chat_message(conversation_id, filter_error, is_user=False)
             except Exception as e:
                 logging.warning(f"Failed to save bot message to chat history: {e}")
-            return RAGResult(filter_error, False, filter_info)
+            return RAGResult(filter_error, False, filter_info, 0.0)
 
         operator_flag, operator_score = self._check_operator_intent(preprocessed_query)
         filter_info["operator_probability"] = operator_score
@@ -568,13 +569,13 @@ class RAGService:
                 self.add_chat_message(conversation_id, message, is_user=False)
             except Exception as e:
                 logging.warning(f"Failed to save bot message to chat history: {e}")
-            return RAGResult(message, True, filter_info)
+            return RAGResult(message, True, filter_info, 0.0)
 
         documents = self._retrieve_documents(preprocessed_query)
         if not documents:
             message = "Не нашла инструкций по этому вопросу. Попробуйте уточнить или попросите оператора."
             self._store_history(conversation_id, preprocessed_query, message)
-            return RAGResult(message, False, filter_info)
+            return RAGResult(message, False, filter_info, 1.0)  # Высокий score = низкая уверенность
 
         history_text = self._format_history(conversation_id)
         doc_payload = json.dumps(documents, ensure_ascii=False)
@@ -601,7 +602,7 @@ class RAGService:
             print(f"RAG DEBUG: Failed to save final bot answer: {e}")
             logging.warning(f"Failed to save bot message to chat history: {e}")
         
-        return RAGResult(final_answer, False, filter_info)
+        return RAGResult(final_answer, False, filter_info, eval_score)
     
     async def generate_ticket_summary(self, messages: list, ticket_id: int = None) -> str:
         """
