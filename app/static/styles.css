@@ -485,6 +485,7 @@ body {
 .logout-btn .btn-icon {
     font-size: 18px;
     flex-shrink: 0;
+    display: none;
 }
 
 .logout-btn .btn-text {
@@ -493,6 +494,10 @@ body {
 
 .sidebar.collapsed .logout-btn {
     padding: 10px;
+}
+
+.sidebar.collapsed .logout-btn .btn-icon {
+    display: block;
 }
 
 .sidebar.collapsed .logout-btn .btn-text {
@@ -1692,6 +1697,7 @@ body.admin-body {
     
     .sidebar.collapsed .logout-btn .btn-icon {
         margin: 0;
+        display: block;
     }
 
     .sidebar-toggle {
@@ -2244,38 +2250,33 @@ body.admin-body {
 .knowledge-main {
     flex: 1;
     background: var(--background-light);
-    padding: 32px 40px;
+    padding: 24px;
     overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    box-sizing: border-box;
+    display: block;
 }
 
 .knowledge-page-header {
-    width: 100%;
-    max-width: 100%;
-    margin-bottom: 30px;
+    margin-bottom: 24px;
+    margin-left: 0;
+    margin-right: 0;
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     gap: 24px;
 }
 
-.knowledge-page-header .header-left h1 {
+.knowledge-page-header h1 {
     font-size: 2rem;
     font-weight: 700;
     color: var(--text-primary);
     margin: 0 0 8px 0;
 }
 
-.knowledge-page-header .header-left p {
+.knowledge-page-header p {
     font-size: 0.95rem;
     color: var(--text-secondary);
     margin: 0;
-}
-
-.knowledge-page-header .header-right {
-    flex-shrink: 0;
 }
 
 .stat-inline {
@@ -2377,14 +2378,6 @@ body.admin-body {
     font-weight: 500;
 }
 
-.knowledge-content-wrapper {
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-    width: 100%;
-    max-width: 100%;
-}
-
 .knowledge-card {
     background: white;
     border-radius: var(--radius-lg);
@@ -2395,6 +2388,8 @@ body.admin-body {
     height: fit-content;
     width: 100%;
     max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
 }
 
 .knowledge-card:hover {
@@ -2686,8 +2681,7 @@ body.admin-body {
     }
     
     .knowledge-page-header,
-    .stats-grid,
-    .knowledge-content-wrapper {
+    .stats-grid {
         max-width: 100%;
     }
 }
@@ -2750,10 +2744,6 @@ body.admin-body {
     
     .stat-value {
         font-size: 2rem;
-    }
-    
-    .knowledge-content-wrapper {
-        max-width: 100%;
     }
     
     .knowledge-card {
