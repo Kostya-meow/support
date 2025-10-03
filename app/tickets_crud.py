@@ -131,6 +131,41 @@ async def update_ticket_status(
     return ticket
 
 
+async def update_ticket_summary(
+    session: AsyncSession,
+    ticket_id: int,
+    summary: str,
+) -> Optional[models.Ticket]:
+    """Обновить краткое описание (summary) заявки."""
+    ticket = await session.get(models.Ticket, ticket_id)
+    if ticket is None:
+        return None
+    
+    ticket.summary = summary
+    ticket.updated_at = datetime.utcnow()
+    
+    await session.commit()
+    await session.refresh(ticket)
+    return ticket
+
+
+async def set_first_response_time(
+    session: AsyncSession,
+    ticket_id: int,
+) -> Optional[models.Ticket]:
+    """Записать время первого ответа оператора (если еще не записано)."""
+    ticket = await session.get(models.Ticket, ticket_id)
+    if ticket is None or ticket.first_response_at is not None:
+        return None
+    
+    ticket.first_response_at = datetime.utcnow()
+    ticket.updated_at = datetime.utcnow()
+    
+    await session.commit()
+    await session.refresh(ticket)
+    return ticket
+
+
 # ========== MESSAGES ==========
 
 async def add_message(
@@ -326,3 +361,43 @@ async def get_daily_tickets_stats(session: AsyncSession, days: int = 30) -> list
         current_date = next_date
     
     return daily_stats
+
+
+async def get_average_response_time(session: AsyncSession) -> Optional[float]:
+    """
+    Получить среднее время отклика (в минутах) - от создания заявки до первого ответа оператора.
+    Возвращает None если нет данных.
+    """
+    result = await session.execute(
+        select(
+            func.avg(
+                func.julianday(models.Ticket.first_response_at) - 
+                func.julianday(models.Ticket.created_at)
+            ) * 24 * 60  # Конвертируем дни в минуты
+        ).where(
+            models.Ticket.first_response_at.isnot(None)
+        )
+    )
+    
+    avg_minutes = result.scalar_one()
+    return round(avg_minutes, 1) if avg_minutes else None
+
+
+async def get_average_resolution_time(session: AsyncSession) -> Optional[float]:
+    """
+    Получить среднее время обработки заявки (в минутах) - от создания до закрытия.
+    Возвращает None если нет данных.
+    """
+    result = await session.execute(
+        select(
+            func.avg(
+                func.julianday(models.Ticket.closed_at) - 
+                func.julianday(models.Ticket.created_at)
+            ) * 24 * 60  # Конвертируем дни в минуты
+        ).where(
+            models.Ticket.closed_at.isnot(None)
+        )
+    )
+    
+    avg_minutes = result.scalar_one()
+    return round(avg_minutes, 1) if avg_minutes else None

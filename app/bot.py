@@ -148,9 +148,9 @@ def create_dispatcher(
                         session,
                         ticket_id=ticket.id,
                         sender=USER_SENDER,
-                        text=text,
-                        telegram_message_id=message.message_id,
-                    )
+                    text=text,
+                    telegram_message_id=message.message_id,
+                )
                     
             except Exception as e:
                 # Если что-то пошло не так с историей, просто добавляем текущее сообщение
@@ -162,6 +162,16 @@ def create_dispatcher(
                     text=text,
                     telegram_message_id=message.message_id,
                 )
+            
+            # Генерируем summary сразу после создания заявки
+            try:
+                messages = await crud.list_messages_for_ticket(session, ticket.id)
+                summary = await rag_service.generate_ticket_summary(messages, ticket_id=ticket.id)
+                # Сохраняем summary в БД
+                await crud.update_ticket_summary(session, ticket.id, summary)
+                logger.info(f"Generated and saved summary for ticket {ticket.id}: {summary[:50]}...")
+            except Exception as e:
+                logger.warning(f"Failed to generate summary for ticket {ticket.id}: {e}")
             
         await _broadcast_message(ticket.id, MessageRead.from_orm(db_message))
         await _broadcast_tickets()

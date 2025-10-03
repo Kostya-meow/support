@@ -23,16 +23,18 @@ class Ticket(Base):
     id = Column(Integer, primary_key=True, index=True)
     telegram_chat_id = Column(BigInteger, index=True, nullable=False)
     title = Column(String(255), nullable=True)
+    summary = Column(Text, nullable=True)  # Краткое описание заявки (авто-генерируется)
     status = Column(String(20), default=TicketStatus.OPEN, nullable=False)
     priority = Column(String(10), default="medium", nullable=False)  # low, medium, high
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    first_response_at = Column(DateTime, nullable=True)  # Время первого ответа оператора
+    closed_at = Column(DateTime, nullable=True)  # Время закрытия заявки
     updated_at = Column(
         DateTime,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
         nullable=False,
     )
-    closed_at = Column(DateTime, nullable=True)
 
     # Связи
     messages = relationship(

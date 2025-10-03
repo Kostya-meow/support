@@ -196,6 +196,19 @@
                     </div>
                 </div>
                 
+                <!-- Карточки времени отклика -->
+                <div class="stats-grid" style="margin-top: 20px;">
+                    <div class="stat-card" style="border-left: 4px solid #10b981;">
+                        <div class="stat-value" id="avgResponseTime">-</div>
+                        <div class="stat-label">Среднее время отклика</div>
+                    </div>
+                    
+                    <div class="stat-card" style="border-left: 4px solid #8b5cf6;">
+                        <div class="stat-value" id="avgResolutionTime">-</div>
+                        <div class="stat-label">Среднее время обработки</div>
+                    </div>
+                </div>
+                
                 <!-- Графики -->
                 <div class="charts-container">
                     <div class="chart-card">
@@ -265,14 +278,17 @@
                 data.tickets.status_distribution.open + data.tickets.status_distribution.in_progress;
             document.getElementById('knowledgeEntries').textContent = data.knowledge_entries;
             
-            // Время ответа
-            const responseTime = data.response_times;
-            document.getElementById('avgResponseTime').textContent = 
-                responseTime.avg_response_time ? Math.round(responseTime.avg_response_time) : '-';
-            document.getElementById('minResponseTime').textContent = 
-                responseTime.min_response_time ? Math.round(responseTime.min_response_time) : '-';
-            document.getElementById('maxResponseTime').textContent = 
-                responseTime.max_response_time ? Math.round(responseTime.max_response_time) : '-';
+            // Новые метрики времени
+            const formatTime = (minutes) => {
+                if (!minutes) return '-';
+                if (minutes < 60) return `${Math.round(minutes)} мин`;
+                const hours = Math.floor(minutes / 60);
+                const mins = Math.round(minutes % 60);
+                return `${hours}ч ${mins}м`;
+            };
+            
+            document.getElementById('avgResponseTime').textContent = formatTime(data.avg_response_time_minutes);
+            document.getElementById('avgResolutionTime').textContent = formatTime(data.avg_resolution_time_minutes);
         }
 
         function updateCharts(data) {

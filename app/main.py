@@ -164,6 +164,10 @@ async def get_dashboard_stats(
     response_time_stats = await crud.get_response_time_stats(session)
     daily_stats = await crud.get_daily_tickets_stats(session, days=30)
     
+    # Метрики времени
+    avg_response_time = await crud.get_average_response_time(session)
+    avg_resolution_time = await crud.get_average_resolution_time(session)
+    
     # Статистика по базе знаний
     async with KnowledgeSessionLocal() as knowledge_session:
         knowledge_count = await crud.count_knowledge_entries(knowledge_session)
@@ -172,7 +176,9 @@ async def get_dashboard_stats(
         "tickets": tickets_stats,
         "response_times": response_time_stats,
         "daily_tickets": daily_stats,
-        "knowledge_entries": knowledge_count
+        "knowledge_entries": knowledge_count,
+        "avg_response_time_minutes": avg_response_time,
+        "avg_resolution_time_minutes": avg_resolution_time
     }
 
 
@@ -337,6 +343,9 @@ async def api_reply(
     # Переводим заявку в статус "В работе" если она была открыта
     if ticket.status == models.TicketStatus.OPEN:
         await crud.update_ticket_status(session, conversation_id, models.TicketStatus.IN_PROGRESS)
+    
+    # Записываем время первого ответа оператора (если еще не записано)
+    await crud.set_first_response_time(session, conversation_id)
 
     bot: Bot | None = request.app.state.bot
     if bot is not None:
@@ -381,11 +390,14 @@ async def get_ticket_summary(
     
     ticket, messages = ticket_with_messages
     
-    # Получаем RAG сервис
-    rag_service: RAGService = request.app.state.rag
-    
-    # Генерируем саммари
-    summary = await rag_service.generate_ticket_summary(messages, ticket_id=conversation_id)
+    # Если summary уже есть в БД, возвращаем его
+    if ticket.summary:
+        summary = ticket.summary
+    else:
+        # Иначе генерируем и сохраняем
+        rag_service: RAGService = request.app.state.rag
+        summary = await rag_service.generate_ticket_summary(messages, ticket_id=conversation_id)
+        await crud.update_ticket_summary(session, conversation_id, summary)
     
     return {
         "ticket_id": conversation_id,

@@ -12,11 +12,13 @@ class TicketRead(BaseModel):
     id: int
     telegram_chat_id: int
     title: Optional[str]
+    summary: Optional[str]
     status: TicketStatus
     priority: str
     created_at: datetime
-    updated_at: datetime
+    first_response_at: Optional[datetime]
     closed_at: Optional[datetime]
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
     
