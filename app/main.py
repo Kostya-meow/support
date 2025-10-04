@@ -233,8 +233,17 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    """Главная страница - доступна всем авторизованным пользователям"""
+    if not auth.is_authenticated_request(request):
+        return RedirectResponse(url="/login", status_code=303)
+    return templates.TemplateResponse("home.html", {"request": request})
+
+
+@app.get("/tickets", response_class=HTMLResponse)
 @require_permission("tickets")
-async def index(request: Request):
+async def tickets_page(request: Request):
+    """Страница заявок"""
     return templates.TemplateResponse("index.html", {"request": request})
 
 
@@ -269,6 +278,32 @@ async def logout(request: Request):
         response = RedirectResponse(url="/login", status_code=303)
     auth.clear_session_cookie(response)
     return response
+
+
+@app.get("/api/me")
+async def get_current_user(request: Request):
+    """Получить информацию о текущем пользователе"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    from app.user_manager import user_manager
+    user_id = auth.get_user_id_from_request(request)
+    user = user_manager.get_user_by_id(user_id)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"username": user["username"], "authenticated": True}
+
+
+@app.get("/api/permissions")
+async def get_user_permissions_api(request: Request):
+    """Получить права доступа текущего пользователя"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    permissions = get_user_permissions(request)
+    return {"available_pages": permissions}
 
 
 @app.get("/admin/knowledge", response_class=HTMLResponse)

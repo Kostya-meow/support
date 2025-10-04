@@ -6,6 +6,7 @@
     <title>База знаний - Support Desk</title>
     <link rel="stylesheet" href="/static/styles.css">
     <script src="/static/navigation.js"></script>
+    <script src="/static/menu_loader.js"></script>
 </head>
 <body>
     <div class="layout">
@@ -17,27 +18,8 @@
                 </div>
                 <div class="sidebar-section">
                     <div class="sidebar-section-title">Навигация</div>
-                    <div class="main-nav">
-                        <a href="/" class="main-nav-btn">
-                            <span class="btn-icon">📋</span>
-                            <span class="btn-text">Заявки</span>
-                        </a>
-                        <a href="/dashboard" class="main-nav-btn">
-                            <span class="btn-icon">📊</span>
-                            <span class="btn-text">Дашборд</span>
-                        </a>
-                        <a href="/admin/knowledge" class="main-nav-btn active">
-                            <span class="btn-icon">📚</span>
-                            <span class="btn-text">База знаний</span>
-                        </a>
-                        <a href="/simulator" class="main-nav-btn">
-                            <span class="btn-icon">🤖</span>
-                            <span class="btn-text">Симулятор</span>
-                        </a>
-                        <a href="/admin/users" class="main-nav-btn">
-                            <span class="btn-icon">👥</span>
-                            <span class="btn-text">Пользователи</span>
-                        </a>
+                    <div class="main-nav" id="mainNav">
+                        <!-- Меню загружается динамически -->
                     </div>
                 </div>
             </div>

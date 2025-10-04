@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Support Desk</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/navigation.js"></script>
+    <script src="/static/menu_loader.js"></script>
+</head>
+<body>
+    <div class="layout">
+        <!-- Сайдбар с навигацией -->
+        <aside class="sidebar">
+            <div class="sidebar-content">
+                <div class="sidebar-header">
+                    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">
+                        ◀
+                    </button>
+                    <h1>Support Desk</h1>
+                </div>
+                
+                <!-- Главная навигация -->
+                <div class="sidebar-section">
+                    <div class="sidebar-section-title">Навигация</div>
+                    <div class="main-nav" id="mainNav">
+                        <!-- Меню загружается динамически -->
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sidebar-footer">
+                <form id="logoutForm" method="post" action="/logout">
+                    <button type="submit" class="logout-btn">
+                        <span class="btn-icon">🚪</span>
+                        <span class="btn-text">Выйти</span>
+                    </button>
+                </form>
+            </div>
+        </aside>
+        
+        <!-- Основной контент -->
+        <main class="chat">
+            <section class="placeholder">
+                <p>Выберите раздел в меню</p>
+            </section>
+        </main>
+    </div>
+</body>
+</html>
+                        link.className = 'menu-item';
+                        link.innerHTML = `
+                            <span class="menu-icon">${item.icon}</span>
+                            <span>${item.name}</span>
+                        `;
+                        menuContainer.appendChild(link);
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error loading menu:', error);
+                window.location.href = '/login';
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+                window.location.href = '/login';
+            } catch (error) {
+                console.error('Logout error:', error);
+                window.location.href = '/login';
+            }
+        }
+
+        // Загружаем меню при старте
+        loadMenu();
+    </script>
+</body>
+</html>
