@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Support Desk</title>
+    <link rel="stylesheet" href="/static/design-system.css">
     <link rel="stylesheet" href="/static/styles.css">
     <script src="/static/navigation.js"></script>
     <script src="/static/menu_loader.js"></script>
@@ -15,7 +16,7 @@
             <div class="sidebar-content">
                 <div class="sidebar-header">
                     <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">
-                        ◀
+                        <span class="material-icons">chevron_left</span>
                     </button>
                     <h1>Support Desk</h1>
                 </div>
@@ -32,7 +33,7 @@
             <div class="sidebar-footer">
                 <form id="logoutForm" method="post" action="/logout">
                     <button type="submit" class="logout-btn">
-                        <span class="btn-icon">🚪</span>
+                        <span class="material-icons">logout</span>
                         <span class="btn-text">Выйти</span>
                     </button>
                 </form>

@@ -51,8 +51,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 function toggleSidebar() {
     const sidebar = document.querySelector('.sidebar');
     const toggle = document.querySelector('.sidebar-toggle');
+    const icon = toggle?.querySelector('.material-icons');
     const isCollapsed = sidebar.classList.toggle('collapsed');
-    toggle.textContent = isCollapsed ? '▶' : '◀';
+    
+    // Меняем иконку Material Icons
+    if (icon) {
+        icon.textContent = isCollapsed ? 'chevron_right' : 'chevron_left';
+    }
+    
     localStorage.setItem('sidebarCollapsed', isCollapsed);
 }
 
@@ -62,6 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (collapsed) {
         document.querySelector('.sidebar')?.classList.add('collapsed');
         const toggle = document.querySelector('.sidebar-toggle');
-        if (toggle) toggle.textContent = '▶';
+        const icon = toggle?.querySelector('.material-icons');
+        if (icon) icon.textContent = 'chevron_right';
     }
 });

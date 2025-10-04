@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Симулятор обучения - Support Desk</title>
+    <link rel="stylesheet" href="/static/design-system.css">
     <link rel="stylesheet" href="/static/styles.css">
     <script src="/static/navigation.js"></script>
     <script src="/static/menu_loader.js"></script>
@@ -32,7 +33,7 @@
             <div class="sidebar-footer">
                 <form method="post" action="/logout">
                     <button type="submit" class="logout-btn">
-                        <span class="btn-icon">🚪</span>
+                        <span class="material-icons">logout</span>
                         <span class="btn-text">Выйти</span>
                     </button>
                 </form>
@@ -293,10 +294,11 @@
             messageDiv.className = `chat-message chat-message-${sender}`;
             if (isSystem) messageDiv.classList.add('chat-message-system');
             
-            const emoji = sender === 'user' ? currentSession.character_info.emoji : '👤';
+            // Используем Material Icons вместо эмодзи
+            const icon = sender === 'user' ? 'person' : 'support_agent';
             
             messageDiv.innerHTML = `
-                <div class="message-avatar">${emoji}</div>
+                <div class="message-avatar"><span class="material-icons">${icon}</span></div>
                 <div class="message-content">${text}</div>
             `;
             

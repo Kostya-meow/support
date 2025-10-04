@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>База знаний - Support Desk</title>
+    <link rel="stylesheet" href="/static/design-system.css">
     <link rel="stylesheet" href="/static/styles.css">
     <script src="/static/navigation.js"></script>
     <script src="/static/menu_loader.js"></script>
@@ -13,7 +14,9 @@
         <aside class="sidebar">
             <div class="sidebar-content">
                 <div class="sidebar-header">
-                    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">◀</button>
+                    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">
+                        <span class="material-icons">chevron_left</span>
+                    </button>
                     <h1>Support Desk</h1>
                 </div>
                 <div class="sidebar-section">
@@ -26,7 +29,7 @@
             <div class="sidebar-footer">
                 <form method="post" action="/logout">
                     <button type="submit" class="logout-btn">
-                        <span class="btn-icon">🚪</span>
+                        <span class="material-icons">logout</span>
                         <span class="btn-text">Выйти</span>
                     </button>
                 </form>
@@ -40,7 +43,7 @@
                     <p>Управление базой данных вопросов и ответов</p>
                 </div>
                 <div class="stat-inline">
-                    <div class="stat-icon">📚</div>
+                    <span class="material-icons stat-icon">menu_book</span>
                     <div class="stat-info">
                         <div class="stat-value" id="entriesCount">-</div>
                         <div class="stat-label">Записей в базе</div>

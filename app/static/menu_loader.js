@@ -1,14 +1,15 @@
 /**
  * Универсальный загрузчик меню на основе прав доступа
  * Предотвращает мигание недоступных пунктов меню
+ * Использует Material Icons вместо эмодзи
  */
 
 const MENU_ITEMS = [
-    { id: 'tickets', name: 'Заявки', icon: '📋', url: '/tickets', permission: 'tickets' },
-    { id: 'dashboard', name: 'Дашборд', icon: '📊', url: '/dashboard', permission: 'dashboard' },
-    { id: 'knowledge', name: 'База знаний', icon: '📚', url: '/admin/knowledge', permission: 'knowledge' },
-    { id: 'simulator', name: 'Симулятор', icon: '🤖', url: '/simulator', permission: 'simulator' },
-    { id: 'admin_users', name: 'Пользователи', icon: '👥', url: '/admin/users', permission: 'admin' }
+    { id: 'tickets', name: 'Заявки', icon: 'description', url: '/tickets', permission: 'tickets' },
+    { id: 'dashboard', name: 'Дашборд', icon: 'dashboard', url: '/dashboard', permission: 'dashboard' },
+    { id: 'knowledge', name: 'База знаний', icon: 'menu_book', url: '/admin/knowledge', permission: 'knowledge' },
+    { id: 'simulator', name: 'Симулятор', icon: 'smart_toy', url: '/simulator', permission: 'simulator' },
+    { id: 'admin_users', name: 'Пользователи', icon: 'group', url: '/admin/users', permission: 'admin' }
 ];
 
 /**
@@ -50,8 +51,9 @@ async function loadNavigationMenu() {
                     link.classList.add('active');
                 }
                 
+                // Используем Material Icons вместо эмодзи
                 link.innerHTML = `
-                    <span class="btn-icon">${item.icon}</span>
+                    <span class="material-icons">${item.icon}</span>
                     <span class="btn-text">${item.name}</span>
                 `;
                 menuContainer.appendChild(link);
