@@ -286,8 +286,8 @@
             
             typingDiv.innerHTML = `
                 ${avatarHtml}
-                <div class="message-content typing-dots">
-                    <span>.</span><span>.</span><span>.</span>
+                <div class="message-content typing-dots" role="status" aria-live="polite">
+                    <span></span><span></span><span></span>
                 </div>
             `;
             chatMessages.appendChild(typingDiv);
@@ -309,8 +309,13 @@
             let avatarHtml;
             if (sender === 'user') {
                 avatarHtml = `<div class="message-avatar">${currentCharacterEmoji}</div>`;
+            } else if (sender === 'system') {
+                avatarHtml = `<div class="message-avatar"><span class="material-icons">auto_awesome</span></div>`;
             } else {
                 avatarHtml = `<div class="message-avatar"><span class="material-icons">support_agent</span></div>`;
+            }
+            if (sender === 'system' || isSystem) {
+                messageDiv.classList.add('chat-message-system');
             }
             
             messageDiv.innerHTML = `
