@@ -45,6 +45,21 @@
     --color-text-muted: var(--color-gray-400);
     --color-border: var(--color-gray-200);
     --color-hover: var(--color-gray-100);
+
+    /* === Compatibility aliases (legacy naming) === */
+    --background-light: var(--color-background);
+    --background-dark: #1F2937;
+    --text-primary: var(--color-text-primary);
+    --text-secondary: var(--color-text-secondary);
+    --text-light: #F8FAFC;
+    --border-color: var(--color-border);
+    --accent-color: var(--color-primary);
+    --primary-color: var(--color-primary);
+    --secondary-color: var(--color-secondary);
+    --success-color: var(--color-success);
+    --warning-color: var(--color-warning);
+    --danger-color: var(--color-danger);
+    --color-primary-600: var(--color-primary-dark);
     
     /* ==========================================================================
        ТИПОГРАФИКА
