@@ -410,7 +410,7 @@
             <div class="sidebar-content">
                 <div class="sidebar-header">
                     <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">
-                        ◀
+                        <span class="material-icons">chevron_left</span>
                     </button>
                     <h1>Support Desk</h1>
                 </div>
@@ -817,8 +817,9 @@
         function toggleSidebar() {
             const sidebar = document.querySelector('.sidebar');
             const toggle = document.querySelector('.sidebar-toggle');
+            const icon = toggle.querySelector('.material-icons');
             const isCollapsed = sidebar.classList.toggle('collapsed');
-            toggle.textContent = isCollapsed ? '▶' : '◀';
+            icon.textContent = isCollapsed ? 'chevron_right' : 'chevron_left';
             localStorage.setItem('sidebarCollapsed', isCollapsed);
         }
 
@@ -827,7 +828,8 @@
             const collapsed = localStorage.getItem('sidebarCollapsed') === 'true';
             if (collapsed) {
                 document.querySelector('.sidebar').classList.add('collapsed');
-                document.querySelector('.sidebar-toggle').textContent = '▶';
+                const icon = document.querySelector('.sidebar-toggle .material-icons');
+                icon.textContent = 'chevron_right';
             }
             
             loadData();

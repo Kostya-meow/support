@@ -16,7 +16,7 @@
             <div class="sidebar-content">
                 <div class="sidebar-header">
                     <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">
-                        ◀
+                        <span class="material-icons">chevron_left</span>
                     </button>
                     <h1>Support Desk</h1>
                 </div>
@@ -168,6 +168,7 @@
         // State
         let currentSession = null;
         let currentQuestion = null;
+        let currentCharacterEmoji = '🙂';
 
         // DOM Elements
         const characterSelection = document.getElementById('characterSelection');
@@ -224,6 +225,9 @@
                 const charsData = await charsResponse.json();
                 const selectedChar = charsData.characters[character];
                 
+                // Save character emoji for messages
+                currentCharacterEmoji = selectedChar.emoji;
+                
                 // Switch to game screen immediately with selected character
                 characterSelection.style.display = 'none';
                 gameScreen.style.display = 'block';
@@ -254,7 +258,6 @@
                 
                 // Remove typing indicator and show first question
                 removeTypingIndicator();
-                chatMessages.innerHTML = '';
                 addMessage('user', data.question);
                 
                 answerInput.value = '';
@@ -269,12 +272,20 @@
         }
         
         // Add typing indicator
-        function addTypingIndicator(emoji = '🙂') {
+        function addTypingIndicator(emoji = '🙂', isOperator = false) {
             const typingDiv = document.createElement('div');
-            typingDiv.className = 'chat-message chat-message-user typing-indicator';
+            typingDiv.className = `chat-message ${isOperator ? 'chat-message-operator' : 'chat-message-user'} typing-indicator`;
             typingDiv.id = 'typingIndicator';
+            
+            let avatarHtml;
+            if (isOperator) {
+                avatarHtml = `<div class="message-avatar"><span class="material-icons">support_agent</span></div>`;
+            } else {
+                avatarHtml = `<div class="message-avatar">${emoji}</div>`;
+            }
+            
             typingDiv.innerHTML = `
-                <div class="message-avatar">${emoji}</div>
+                ${avatarHtml}
                 <div class="message-content typing-dots">
                     <span>.</span><span>.</span><span>.</span>
                 </div>
@@ -294,11 +305,16 @@
             messageDiv.className = `chat-message chat-message-${sender}`;
             if (isSystem) messageDiv.classList.add('chat-message-system');
             
-            // Используем Material Icons вместо эмодзи
-            const icon = sender === 'user' ? 'person' : 'support_agent';
+            // For user messages, use character emoji; for operator, use icon
+            let avatarHtml;
+            if (sender === 'user') {
+                avatarHtml = `<div class="message-avatar">${currentCharacterEmoji}</div>`;
+            } else {
+                avatarHtml = `<div class="message-avatar"><span class="material-icons">support_agent</span></div>`;
+            }
             
             messageDiv.innerHTML = `
-                <div class="message-avatar"><span class="material-icons">${icon}</span></div>
+                ${avatarHtml}
                 <div class="message-content">${text}</div>
             `;
             
@@ -326,8 +342,8 @@
             submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="spin-animation"><circle cx="12" cy="12" r="10" stroke-width="2"/><path d="M12 6v6l4 2" stroke-width="2" stroke-linecap="round"/></svg>';
             answerInput.disabled = true;
             
-            // Show typing indicator for evaluation
-            addTypingIndicator(currentSession.character_info.emoji);
+            // Show typing indicator for evaluation (operator is analyzing)
+            addTypingIndicator('', true);
             
             try {
                 const response = await fetch('/api/simulator/respond', {
@@ -395,7 +411,7 @@
             submitBtn.disabled = true;
             
             // Show typing indicator
-            addTypingIndicator(currentSession.character_info.emoji);
+            addTypingIndicator(currentCharacterEmoji);
             
             // Simulate typing delay, then show question
             setTimeout(() => {
@@ -540,7 +556,8 @@
             
             // Меняем иконку кнопки
             const toggleBtn = document.querySelector('.sidebar-toggle');
-            toggleBtn.textContent = isCollapsed ? '▶' : '◀';
+            const icon = toggleBtn.querySelector('.material-icons');
+            icon.textContent = isCollapsed ? 'chevron_right' : 'chevron_left';
         }
 
         // Восстанавливаем состояние sidebar при загрузке
@@ -548,10 +565,11 @@
             const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
             const sidebar = document.querySelector('.sidebar');
             const toggleBtn = document.querySelector('.sidebar-toggle');
+            const icon = toggleBtn.querySelector('.material-icons');
             
             if (isCollapsed) {
                 sidebar.classList.add('collapsed');
-                toggleBtn.textContent = '▶';
+                icon.textContent = 'chevron_right';
             }
         });
     </script>

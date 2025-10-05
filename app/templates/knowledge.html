@@ -54,7 +54,7 @@
             <div class="knowledge-card upload-card">
                 <div class="card-header">
                     <div class="card-title-group">
-                        <span class="card-icon">📤</span>
+                        <span class="material-icons card-icon">upload</span>
                         <h3 class="card-title">Загрузка базы знаний</h3>
                     </div>
                 </div>
@@ -186,14 +186,16 @@
             sidebar.classList.toggle('collapsed');
             localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
             const toggleBtn = document.querySelector('.sidebar-toggle');
-            toggleBtn.textContent = sidebar.classList.contains('collapsed') ? '▶' : '◀';
+            const icon = toggleBtn.querySelector('.material-icons');
+            icon.textContent = sidebar.classList.contains('collapsed') ? 'chevron_right' : 'chevron_left';
         }
 
         document.addEventListener('DOMContentLoaded', () => {
             const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
             if (isCollapsed) {
                 document.querySelector('.sidebar').classList.add('collapsed');
-                document.querySelector('.sidebar-toggle').textContent = '▶';
+                const icon = document.querySelector('.sidebar-toggle .material-icons');
+                icon.textContent = 'chevron_right';
             }
             refreshStats();
         });

@@ -65,7 +65,7 @@
             <section id="chatPanel" class="chat-panel hidden">
                 <header class="chat-panel__header">
                     <h2 id="chatTitle">Заявка</h2>
-                    <button id="finishButton" type="button" class="btn btn-secondary">Завершить заявку</button>
+                    <button id="finishButton" type="button" class="btn btn-danger">Завершить заявку</button>
                 </header>
                 
                 <!-- Панель с саммари -->
@@ -539,7 +539,8 @@
             
             // Меняем иконку кнопки
             const toggleBtn = document.querySelector('.sidebar-toggle');
-            toggleBtn.textContent = isCollapsed ? '▶' : '◀';
+            const icon = toggleBtn.querySelector('.material-icons');
+            icon.textContent = isCollapsed ? 'chevron_right' : 'chevron_left';
         }
 
         // Восстанавливаем состояние sidebar при загрузке
@@ -547,10 +548,11 @@
             const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
             const sidebar = document.querySelector('.sidebar');
             const toggleBtn = document.querySelector('.sidebar-toggle');
+            const icon = toggleBtn.querySelector('.material-icons');
             
             if (isCollapsed) {
                 sidebar.classList.add('collapsed');
-                toggleBtn.textContent = '▶';
+                icon.textContent = 'chevron_right';
             }
         });
 

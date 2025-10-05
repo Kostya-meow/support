@@ -148,7 +148,7 @@ body {
     font-weight: var(--font-weight-normal);
     line-height: var(--line-height-normal);
     color: var(--color-text-primary);
-    background-color: var(--color-background-secondary);
+    background-color: var(--color-gray-100);  /* Светло-серый фон */
 }
 
 /* =============================================================================
@@ -213,32 +213,40 @@ body {
 
 /* Primary Button */
 .btn-primary {
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-primary) !important;
+    color: #FFFFFF !important;
     box-shadow: var(--shadow-sm);
 }
 
 .btn-primary:hover:not(:disabled) {
-    background: var(--color-primary-dark);
+    background: var(--color-primary-dark) !important;
     box-shadow: var(--shadow-md);
     transform: translateY(-1px);
 }
 
 .btn-primary:active:not(:disabled) {
+    background: var(--color-primary) !important;
     transform: translateY(0);
+    box-shadow: var(--shadow-sm);
 }
 
 /* Secondary Button */
 .btn-secondary {
-    background: var(--color-secondary);
-    color: white;
+    background: var(--color-secondary) !important;
+    color: #FFFFFF !important;
     box-shadow: var(--shadow-sm);
 }
 
 .btn-secondary:hover:not(:disabled) {
-    background: #0284C7;
+    background: #0284C7 !important;
     box-shadow: var(--shadow-md);
     transform: translateY(-1px);
+}
+
+.btn-secondary:active:not(:disabled) {
+    background: var(--color-secondary) !important;
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm);
 }
 
 /* Outline Button */
@@ -251,30 +259,45 @@ body {
 .btn-outline:hover:not(:disabled) {
     background: var(--color-primary-50);
     border-color: var(--color-primary);
+    box-shadow: 0 2px 6px rgba(79, 70, 229, 0.12);
 }
 
 /* Success Button */
 .btn-success {
-    background: var(--color-success);
-    color: white;
+    background: var(--color-success) !important;
+    color: #FFFFFF !important;
     box-shadow: var(--shadow-sm);
 }
 
 .btn-success:hover:not(:disabled) {
-    background: #059669;
+    background: #059669 !important;
     box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.btn-success:active:not(:disabled) {
+    background: var(--color-success) !important;
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm);
 }
 
 /* Danger Button */
 .btn-danger {
-    background: var(--color-danger);
-    color: white;
+    background: var(--color-danger) !important;
+    color: #FFFFFF !important;
     box-shadow: var(--shadow-sm);
 }
 
 .btn-danger:hover:not(:disabled) {
-    background: #DC2626;
+    background: #DC2626 !important;
     box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.btn-danger:active:not(:disabled) {
+    background: var(--color-danger) !important;
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm);
 }
 
 /* Icon Button */
@@ -455,6 +478,60 @@ body {
 .d-block { display: block; }
 .d-flex { display: flex; }
 .d-inline-flex { display: inline-flex; }
+
+/* =============================================================================
+   ACTION BUTTONS (для таблиц и списков)
+   ============================================================================= */
+.action-btn {
+    padding: var(--spacing-2) var(--spacing-3);
+    border: none;
+    border-radius: var(--radius-md);
+    font-family: var(--font-family);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    white-space: nowrap;
+}
+
+.action-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.action-btn:active {
+    transform: translateY(0);
+}
+
+.btn-edit {
+    background: var(--color-secondary) !important;
+    color: #FFFFFF !important;
+}
+
+.btn-edit:hover {
+    background: #0284C7 !important;
+    box-shadow: 0 2px 8px rgba(14, 165, 233, 0.3);
+}
+
+.btn-permissions {
+    background: var(--color-success) !important;
+    color: #FFFFFF !important;
+}
+
+.btn-permissions:hover {
+    background: #059669 !important;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.btn-delete {
+    background: var(--color-danger) !important;
+    color: #FFFFFF !important;
+}
+
+.btn-delete:hover {
+    background: #DC2626 !important;
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+}
 
 /* Flex Utilities */
 .flex-row { flex-direction: row; }
