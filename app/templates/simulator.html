@@ -47,7 +47,10 @@
             <!-- Character Selection Screen -->
             <div id="characterSelection" class="simulator-screen">
                 <div class="simulator-header">
-                    <h1 class="simulator-title">🎮 Симулятор обучения оператора</h1>
+                    <h1 class="simulator-title">
+                        <span class="material-icons simulator-title-icon">sports_esports</span>
+                        Симулятор обучения оператора
+                    </h1>
                     <p class="simulator-subtitle">Выберите персонажа и тренируйтесь отвечать на вопросы пользователей</p>
                 </div>
 
@@ -126,7 +129,10 @@
             <div id="resultsScreen" class="simulator-screen" style="display: none;">
                 <div class="results-wrapper">
                     <div class="results-header">
-                        <h2 class="results-title">🎉 Тренировка завершена!</h2>
+                        <h2 class="results-title">
+                            <span class="material-icons results-title-icon">emoji_events</span>
+                            Тренировка завершена!
+                        </h2>
                         
                         <div class="results-stats">
                             <div class="result-stat">
@@ -205,7 +211,7 @@
                         <div class="character-emoji-large">${char.emoji}</div>
                         <h3 class="character-card-name">${char.name}</h3>
                         <p class="character-card-description">${char.description}</p>
-                        <button class="btn-primary" onclick="startSession('${key}')">
+                        <button class="btn btn-primary" onclick="startSession('${key}')">
                             Выбрать
                         </button>
                     `;
@@ -388,14 +394,14 @@
         // Show evaluation results as chat messages
         function showEvaluation(data) {
             // Add score message
-            const scoreEmoji = data.score >= 80 ? '🎉' : data.score >= 60 ? '👍' : '📝';
-            addMessage('system', `${scoreEmoji} <strong>Оценка: ${data.score} баллов</strong>`, true);
+            const scoreIcon = data.score >= 80 ? 'emoji_events' : data.score >= 60 ? 'thumb_up' : 'rate_review';
+            addMessage('system', `<span class="material-icons message-icon">${scoreIcon}</span><strong>Оценка: ${data.score} баллов</strong>`, true);
             
             // Add feedback
-            addMessage('system', `💬 <strong>Обратная связь:</strong><br>${data.feedback}`, true);
+            addMessage('system', `<span class="material-icons message-icon">chat_bubble_outline</span><strong>Обратная связь:</strong><br>${data.feedback}`, true);
             
             // Add suggestion
-            addMessage('system', `✨ <strong>Эталонный ответ:</strong><br>${data.ai_suggestion}`, true);
+            addMessage('system', `<span class="material-icons message-icon">lightbulb</span><strong>Эталонный ответ:</strong><br>${data.ai_suggestion}`, true);
             
             // Continue automatically
             if (!data.session_complete) {
@@ -452,10 +458,22 @@
                         <span class="history-item-number">Вопрос ${index + 1}</span>
                         <span class="history-item-score history-score-${scoreClass}">${item.score} баллов</span>
                     </div>
-                    <div class="history-item-question"><strong>❓ Вопрос:</strong> ${item.question}</div>
-                    <div class="history-item-answer"><strong>💬 Ваш ответ:</strong> ${item.user_answer}</div>
-                    <div class="history-item-ideal"><strong>✨ Эталонный ответ:</strong> ${item.ai_suggestion || item.ideal_answer || 'Не указан'}</div>
-                    <div class="history-item-feedback"><strong>📝 Обратная связь:</strong> ${item.feedback}</div>
+                    <div class="history-line history-item-question">
+                        <span class="material-icons history-icon">help_outline</span>
+                        <div><strong>Вопрос:</strong> ${item.question}</div>
+                    </div>
+                    <div class="history-line history-item-answer">
+                        <span class="material-icons history-icon">chat_bubble_outline</span>
+                        <div><strong>Ваш ответ:</strong> ${item.user_answer}</div>
+                    </div>
+                    <div class="history-line history-item-ideal">
+                        <span class="material-icons history-icon">lightbulb</span>
+                        <div><strong>Эталонный ответ:</strong> ${item.ai_suggestion || item.ideal_answer || 'Не указан'}</div>
+                    </div>
+                    <div class="history-line history-item-feedback">
+                        <span class="material-icons history-icon">rate_review</span>
+                        <div><strong>Обратная связь:</strong> ${item.feedback}</div>
+                    </div>
                 `;
                 historyContainer.appendChild(historyItem);
             });
@@ -479,7 +497,7 @@
                 currentScoreEl.textContent = currentScore - 10;
                 
                 // Показываем подсказку с информацией о штрафе
-                addMessage('system', `💡 <strong>Подсказка (-10 баллов):</strong><br>${data.hint}`, true);
+                addMessage('system', `<span class="material-icons message-icon">tips_and_updates</span><strong>Подсказка (-10 баллов):</strong><br>${data.hint}`, true);
                 
                 // Восстанавливаем кнопку
                 hintBtn.disabled = false;

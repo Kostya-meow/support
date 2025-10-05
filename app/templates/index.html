@@ -158,20 +158,37 @@
                     item.classList.add('active');
                 }
 
+                const icon = document.createElement('span');
+                icon.className = 'conversation-icon material-icons';
+                icon.textContent = 'person';
+
                 const content = document.createElement('div');
                 content.className = 'conversation-content';
+
+                const header = document.createElement('div');
+                header.className = 'conversation-header';
 
                 const title = document.createElement('div');
                 title.className = 'conversation-title';
                 title.textContent = conversation.title || `Заявка #${conversation.id}`;
 
-                const meta = document.createElement('div');
-                meta.className = 'conversation-meta';
-                meta.textContent = formatTimestamp(conversation.updated_at);
+                const time = document.createElement('div');
+                time.className = 'conversation-time';
+                time.textContent = formatTimestamp(conversation.updated_at);
 
-                content.appendChild(title);
-                content.appendChild(meta);
+                header.appendChild(title);
+                header.appendChild(time);
 
+                const preview = document.createElement('div');
+                preview.className = 'conversation-preview';
+                preview.textContent = conversation.preview || conversation.last_message || '';
+
+                content.appendChild(header);
+                if (preview.textContent) {
+                    content.appendChild(preview);
+                }
+
+                item.appendChild(icon);
                 item.appendChild(content);
 
                 if (conversation.unread_count > 0 && conversation.id !== activeConversationId) {

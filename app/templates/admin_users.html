@@ -8,423 +8,26 @@
     <link rel="stylesheet" href="/static/styles.css">
     <script src="/static/navigation.js"></script>
     <script src="/static/menu_loader.js"></script>
-    <style>
-        .admin-container {
-            width: 100%;
-            height: 100%;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            box-sizing: border-box;
-        }
-
-        .admin-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 15px;
-            flex-shrink: 0;
-        }
-
-        .admin-header h2 {
-            margin: 0;
-            font-size: 24px;
-            color: #333;
-        }
-
-        .users-table-wrapper {
-            flex: 1;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-
-        .users-table {
-            flex: 1;
-            overflow-y: auto;
-            overflow-x: auto;
-        }
-
-        .users-table table {
-            width: 100%;
-            min-width: 900px;
-            border-collapse: collapse;
-        }
-
-        .users-table thead {
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-
-        .users-table th {
-            background: #4a90e2;
-            color: white;
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-            white-space: nowrap;
-        }
-
-        .users-table td {
-            padding: 12px;
-            border-bottom: 1px solid #eee;
-        }
-
-        .users-table tbody tr:hover {
-            background: #f9f9f9;
-        }
-
-        /* Стилизация скроллбара для таблицы */
-        .users-table::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-
-        .users-table::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 4px;
-        }
-
-        .users-table::-webkit-scrollbar-thumb {
-            background: #888;
-            border-radius: 4px;
-        }
-
-        .users-table::-webkit-scrollbar-thumb:hover {
-            background: #555;
-        }
-
-        .user-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-            white-space: nowrap;
-        }
-
-        .badge-admin {
-            background: #ff6b6b;
-            color: white;
-        }
-
-        .badge-operator {
-            background: #4a90e2;
-            color: white;
-        }
-
-        .badge-analyst {
-            background: #51cf66;
-            color: white;
-        }
-
-        .badge-trainee {
-            background: #ffd93d;
-            color: #333;
-        }
-
-        @media (max-width: 968px) {
-            .admin-container {
-                padding: 10px;
-            }
-            
-            .admin-header h2 {
-                font-size: 20px;
-            }
-            
-            .users-table {
-                font-size: 14px;
-            }
-            
-            .action-btn {
-                padding: 4px 8px;
-                font-size: 11px;
-            }
-        }
-
-        .user-active {
-            color: #51cf66;
-            font-weight: bold;
-        }
-
-        .user-inactive {
-            color: #999;
-        }
-
-        .action-btn {
-            padding: 6px 12px;
-            margin: 0 4px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            transition: all 0.2s;
-        }
-
-        .btn-edit {
-            background: #4a90e2;
-            color: white;
-        }
-
-        .btn-edit:hover {
-            background: #357abd;
-        }
-
-        .btn-delete {
-            background: #ff6b6b;
-            color: white;
-        }
-
-        .btn-delete:hover {
-            background: #ee5a52;
-        }
-
-        .btn-permissions {
-            background: #51cf66;
-            color: white;
-        }
-
-        .btn-permissions:hover {
-            background: #40c057;
-        }
-
-        .btn-primary {
-            background: #4a90e2;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.2s;
-        }
-
-        .btn-primary:hover {
-            background: #357abd;
-        }
-
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.6);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-            backdrop-filter: blur(2px);
-        }
-
-        .modal.active {
-            display: flex;
-        }
-
-        .modal-content {
-            background: white;
-            padding: 0;
-            border-radius: 12px;
-            max-width: 600px;
-            width: 90%;
-            max-height: 85vh;
-            overflow: hidden;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            display: flex;
-            flex-direction: column;
-        }
-
-        .modal-header {
-            font-size: 22px;
-            font-weight: 700;
-            padding: 24px 30px;
-            background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
-            color: white;
-            border-bottom: none;
-            margin: 0;
-        }
-
-        .modal-body {
-            padding: 30px;
-            overflow-y: auto;
-            flex: 1;
-        }
-
-        .modal-footer {
-            padding: 20px 30px;
-            background: #f8f9fa;
-            border-top: 1px solid #e9ecef;
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #333;
-        }
-
-        .form-group input,
-        .form-group select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: #4a90e2;
-            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
-        }
-
-        .checkbox-group {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .checkbox-item {
-            display: flex;
-            align-items: center;
-            padding: 12px 16px;
-            border-radius: 8px;
-            border: 2px solid #e9ecef;
-            background: #f8f9fa;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .checkbox-item:hover {
-            background: #e9ecef;
-            border-color: #4a90e2;
-        }
-
-        .checkbox-item input {
-            width: 20px;
-            height: 20px;
-            margin: 0;
-            margin-right: 12px;
-            cursor: pointer;
-        }
-
-        .checkbox-item label {
-            margin: 0;
-            font-weight: 500;
-            cursor: pointer;
-            flex: 1;
-            color: #333;
-        }
-
-        .checkbox-item.checked {
-            background: #e7f3ff;
-            border-color: #4a90e2;
-        }
-
-        .form-actions {
-            display: flex;
-            gap: 10px;
-        }
-
-        .btn-cancel {
-            background: #999;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-
-        .btn-cancel:hover {
-            background: #777;
-        }
-
-        .admin-checkbox {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px;
-            background: #fff3cd;
-            border-radius: 4px;
-            border: 1px solid #ffc107;
-        }
-
-        .admin-checkbox input {
-            width: auto;
-            margin: 0;
-        }
-
-        .admin-checkbox label {
-            font-weight: 600;
-            color: #856404;
-            margin: 0;
-            cursor: pointer;
-        }
-
-        .active-checkbox {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px;
-            background: #f8f9fa;
-            border-radius: 4px;
-            border: 1px solid #dee2e6;
-        }
-
-        .active-checkbox input {
-            width: 18px;
-            height: 18px;
-            margin: 0;
-            cursor: pointer;
-        }
-
-        .active-checkbox label {
-            font-weight: 500;
-            color: #333;
-            margin: 0;
-            cursor: pointer;
-        }
-    </style>
 </head>
 <body>
     <div class="layout">
-        <!-- Сайдбар -->
         <aside class="sidebar">
             <div class="sidebar-content">
                 <div class="sidebar-header">
+                    <h1>Support Desk</h1>
                     <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">
                         <span class="material-icons">chevron_left</span>
                     </button>
-                    <h1>Support Desk</h1>
                 </div>
-                
+
                 <div class="sidebar-section">
                     <div class="sidebar-section-title">Навигация</div>
-                    <div class="main-nav" id="mainNav">
-                        <!-- Меню загружается динамически -->
-                    </div>
+                    <div class="main-nav" id="mainNav"></div>
                 </div>
             </div>
-            
+
             <div class="sidebar-footer">
-                <form id="logoutForm" method="post" action="/logout">
+                <form method="post" action="/logout">
                     <button type="submit" class="logout-btn">
                         <span class="material-icons">logout</span>
                         <span class="btn-text">Выйти</span>
@@ -433,13 +36,16 @@
             </div>
         </aside>
 
-        <!-- Основной контент -->
-        <main class="main-content">
+        <main class="dashboard-main">
             <div class="admin-container">
                 <div class="admin-header">
-                    <h2>Управление пользователями</h2>
-                    <button class="btn-primary" onclick="openCreateModal()">
-                        + Создать пользователя
+                    <div>
+                        <h2>Пользователи</h2>
+                        <p class="dashboard-subtitle">Управляйте учетными записями команды и правами доступа</p>
+                    </div>
+                    <button type="button" class="btn btn-primary" onclick="openCreateModal()">
+                        <span class="material-icons">add</span>
+                        <span>Новый пользователь</span>
                     </button>
                 </div>
 
@@ -449,16 +55,18 @@
                             <thead>
                                 <tr>
                                     <th>ID</th>
-                                    <th>Имя пользователя</th>
+                                    <th>Логин</th>
                                     <th>ФИО</th>
                                     <th>Роль</th>
                                     <th>Статус</th>
                                     <th>Создан</th>
-                                    <th>Действия</th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody id="usersTableBody">
-                                <!-- Будет заполнено через JS -->
+                                <tr>
+                                    <td colspan="7" class="loading">Загрузка...</td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -583,23 +191,27 @@
                             ${user.role_name}${user.is_admin ? ' (Админ)' : ''}
                         </span>
                     </td>
-                    <td class="${user.is_active ? 'user-active' : 'user-inactive'}">
-                        ${user.is_active ? '✓ Активен' : '✗ Неактивен'}
+                    <td class="status-cell">
+                        <span class="status-indicator ${user.is_active ? 'status-active' : 'status-inactive'}" title="${user.is_active ? 'Активен' : 'Неактивен'}">
+                            <span class="material-icons">${user.is_active ? 'check_circle' : 'do_not_disturb_on'}</span>
+                        </span>
                     </td>
                     <td>${new Date(user.created_at).toLocaleDateString('ru')}</td>
                     <td>
                         ${isMainAdmin ? 
-                            `<span style="color: #999; font-size: 12px;">Системный администратор</span>` :
+                            `<span class="system-admin-badge">Системный администратор</span>` :
                             `
-                            <button class="action-btn btn-edit" onclick="editUser(${user.id})">
-                                Редактировать
-                            </button>
-                            <button class="action-btn btn-permissions" onclick="managePermissions(${user.id})">
-                                Права
-                            </button>
-                            <button class="action-btn btn-delete" onclick="deleteUser(${user.id})">
-                                Удалить
-                            </button>
+                            <div class="users-actions">
+                                <button class="icon-btn icon-btn-edit" onclick="editUser(${user.id})" title="Редактировать">
+                                    <span class="material-icons">edit</span>
+                                </button>
+                                <button class="icon-btn icon-btn-permissions" onclick="managePermissions(${user.id})" title="Права доступа">
+                                    <span class="material-icons">lock_person</span>
+                                </button>
+                                <button class="icon-btn icon-btn-delete" onclick="deleteUser(${user.id})" title="Удалить">
+                                    <span class="material-icons">delete</span>
+                                </button>
+                            </div>
                             `
                         }
                     </td>

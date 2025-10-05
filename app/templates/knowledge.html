@@ -63,7 +63,10 @@
                             Загрузите Excel-файл с вопросами и ответами для обучения системы. 
                             Файл должен содержать два столбца с заголовками <strong>"Вопрос"</strong> и <strong>"Ответ"</strong>. 
                             Поддерживаются форматы .xlsx и .xls. 
-                            <span class="text-warning"><strong>⚠️ Загрузка заменит существующую базу знаний.</strong></span>
+                            <span class="text-warning">
+                                <span class="material-icons warning-icon">warning</span>
+                                <span class="warning-text">Загрузка заменит существующую базу знаний.</span>
+                            </span>
                         </p>
 
                         <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
@@ -86,7 +89,8 @@
                                 <div id="fileName" class="selected-file-info"></div>
                             </div>
                             <button type="submit" class="btn btn-primary btn-large" id="uploadButton" disabled>
-                                <span>📥 Загрузить и обновить базу</span>
+                                <span class="material-icons">cloud_upload</span>
+                                <span>Загрузить и обновить базу</span>
                             </button>
                         </form>
 
@@ -107,7 +111,23 @@
         fileInput.addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (file) {
-                fileName.innerHTML = '<div class="file-selected"><div class="file-icon-display">📄</div><div class="file-details"><div class="file-name-display">' + file.name + '</div><div class="file-size-display">' + (file.size / 1024).toFixed(1) + ' KB</div></div><button type="button" class="file-clear-btn" onclick="clearFile()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></div>';
+                fileName.innerHTML = `
+                    <div class="file-selected">
+                        <div class="file-icon-display">
+                            <span class="material-icons">description</span>
+                        </div>
+                        <div class="file-details">
+                            <div class="file-name-display">${file.name}</div>
+                            <div class="file-size-display">${(file.size / 1024).toFixed(1)} KB</div>
+                        </div>
+                        <button type="button" class="file-clear-btn" onclick="clearFile()" aria-label="Очистить файл">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                `;
                 uploadButton.disabled = false;
             } else {
                 clearFile();
@@ -147,7 +167,12 @@
 
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
-            statusLabel.innerHTML = '<div class="status-loading">⏳ Идёт обработка файла...</div>';
+            statusLabel.innerHTML = `
+                <div class="status-loading">
+                    <span class="material-icons">hourglass_top</span>
+                    <span>Идёт обработка файла...</span>
+                </div>
+            `;
 
             try {
                 const response = await fetch('/admin/knowledge/upload', {
@@ -162,11 +187,21 @@
                 }
 
                 const data = await response.json();
-                statusLabel.innerHTML = '<div class="status-success">✓ Успешно загружено ' + data.entries + ' записей!</div>';
+                statusLabel.innerHTML = `
+                    <div class="status-success">
+                        <span class="material-icons">task_alt</span>
+                        <span>Успешно загружено ${data.entries} записей!</span>
+                    </div>
+                `;
                 clearFile();
                 await refreshStats();
             } catch (error) {
-                statusLabel.innerHTML = '<div class="status-error">✕ Ошибка: ' + error.message + '</div>';
+                statusLabel.innerHTML = `
+                    <div class="status-error">
+                        <span class="material-icons">error</span>
+                        <span>Ошибка: ${error.message}</span>
+                    </div>
+                `;
             }
         });
 

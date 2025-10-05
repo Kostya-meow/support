@@ -10,23 +10,26 @@
 @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 
 /* =============================================================================
-   ЦВЕТОВАЯ ПАЛИТРА (5 цветов)
+   ЦВЕТОВАЯ ПАЛИТРА (обновлено по референсам)
    ============================================================================= */
 :root {
     /* === Основные цвета === */
-    --color-primary: #4F46E5;        /* Индиго - основной бренд */
-    --color-secondary: #0EA5E9;      /* Небесно-голубой - акценты */
+    --color-primary: #5B5FED;        /* Синий индиго - основной акцент */
+    --color-secondary: #10B981;      /* Зеленый - успех/акценты */
     --color-success: #10B981;        /* Зеленый - успех */
-    --color-warning: #F59E0B;        /* Янтарный - предупреждения */
+    --color-warning: #F59E0B;        /* Оранжевый - предупреждения */
     --color-danger: #EF4444;         /* Красный - ошибки */
+    --color-info: #3B82F6;           /* Голубой - информация */
     
     /* === Оттенки основного цвета === */
-    --color-primary-light: #818CF8;
-    --color-primary-dark: #3730A3;
-    --color-primary-50: #EEF2FF;
+    --color-primary-light: #8B8FF8;
+    --color-primary-dark: #4144C9;
+    --color-primary-50: #EEEFFE;
+    --color-primary-100: #E0E1FD;
+    --color-primary-hover: #7478F0;
     
     /* === Нейтральные цвета === */
-    --color-gray-50: #F9FAFB;
+    --color-gray-50: #FAFBFC;
     --color-gray-100: #F3F4F6;
     --color-gray-200: #E5E7EB;
     --color-gray-300: #D1D5DB;
@@ -37,13 +40,21 @@
     --color-gray-800: #1F2937;
     --color-gray-900: #111827;
     
+    /* === Темная тема для sidebar === */
+    --color-sidebar-bg: #1F2937;
+    --color-sidebar-hover: #374151;
+    --color-sidebar-active: #5B5FED;
+    --color-sidebar-text: #E5E7EB;
+    --color-sidebar-text-muted: #9CA3AF;
+    
     /* === Семантические цвета === */
     --color-background: #FFFFFF;
-    --color-background-secondary: var(--color-gray-50);
+    --color-background-secondary: #F6F7FF;
     --color-text-primary: var(--color-gray-900);
     --color-text-secondary: var(--color-gray-600);
     --color-text-muted: var(--color-gray-400);
     --color-border: var(--color-gray-200);
+    --color-border-light: #F0F1F3;
     --color-hover: var(--color-gray-100);
     
     /* ==========================================================================
@@ -99,14 +110,14 @@
     --radius-full: 9999px;   /* Круглый */
     
     /* ==========================================================================
-       SHADOWS (Тени)
+       SHADOWS (Тени) - более мягкие, как в референсах
        ========================================================================== */
-    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-    --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.06), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.06), 0 4px 6px -4px rgb(0 0 0 / 0.03);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.06), 0 8px 10px -6px rgb(0 0 0 / 0.02);
+    --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.15);
     
     /* ==========================================================================
        TRANSITIONS (Анимации)
