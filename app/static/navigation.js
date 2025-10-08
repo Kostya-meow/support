@@ -28,6 +28,7 @@ function filterNavigationByPermissions(permissions) {
         'admin': 'a[href="/admin/users"]'
     };
 
+    // Test
     // Скрываем все пункты, к которым нет доступа
     Object.entries(menuItems).forEach(([permission, selector]) => {
         const menuItem = document.querySelector(`.main-nav ${selector}`);
