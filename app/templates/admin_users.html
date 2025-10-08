@@ -4,30 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Управление пользователями - Support Desk</title>
-    <link rel="stylesheet" href="/static/design-system.css">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <link rel="stylesheet" href="/static/style.css">
     <script src="/static/navigation.js"></script>
     <script src="/static/menu_loader.js"></script>
 </head>
 <body>
     <div class="layout">
+        <!-- Сайдбар -->
         <aside class="sidebar">
             <div class="sidebar-content">
                 <div class="sidebar-header">
                     <h1>Support Desk</h1>
-                    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/Развернуть">
-                        <span class="material-icons">chevron_left</span>
-                    </button>
                 </div>
-
+                
                 <div class="sidebar-section">
                     <div class="sidebar-section-title">Навигация</div>
-                    <div class="main-nav" id="mainNav"></div>
+                    <div class="main-nav" id="mainNav">
+                        <!-- Меню загружается динамически -->
+                    </div>
                 </div>
             </div>
-
+            
             <div class="sidebar-footer">
-                <form method="post" action="/logout">
+                <form id="logoutForm" method="post" action="/logout">
                     <button type="submit" class="logout-btn">
                         <span class="material-icons">logout</span>
                         <span class="btn-text">Выйти</span>
@@ -36,16 +36,18 @@
             </div>
         </aside>
 
-        <main class="dashboard-main">
-            <div class="admin-container">
+        <!-- Основной контент -->
+        <main class="main-content users-page">
+            <div class="users-shell">
+                <div class="admin-container">
                 <div class="admin-header">
-                    <div>
-                        <h2>Пользователи</h2>
-                        <p class="dashboard-subtitle">Управляйте учетными записями команды и правами доступа</p>
+                    <div class="admin-heading">
+                        <h2 class="admin-title">Управление пользователями</h2>
+                        <p class="admin-subtitle">Создавайте аккаунты, назначайте роли и контролируйте активность команды</p>
                     </div>
-                    <button type="button" class="btn btn-primary" onclick="openCreateModal()">
-                        <span class="material-icons">add</span>
-                        <span>Новый пользователь</span>
+                    <button type="button" class="btn btn-soft-primary create-user-btn" onclick="openCreateModal()">
+                        <span class="material-icons" aria-hidden="true">person_add</span>
+                        <span class="btn-label">Создать пользователя</span>
                     </button>
                 </div>
 
@@ -55,21 +57,20 @@
                             <thead>
                                 <tr>
                                     <th>ID</th>
-                                    <th>Логин</th>
+                                    <th>Имя пользователя</th>
                                     <th>ФИО</th>
                                     <th>Роль</th>
                                     <th>Статус</th>
                                     <th>Создан</th>
-                                    <th></th>
+                                    <th>Действия</th>
                                 </tr>
                             </thead>
                             <tbody id="usersTableBody">
-                                <tr>
-                                    <td colspan="7" class="loading">Загрузка...</td>
-                                </tr>
+                                <!-- Будет заполнено через JS -->
                             </tbody>
                         </table>
                     </div>
+                </div>
                 </div>
             </div>
         </main>
@@ -78,54 +79,76 @@
     <!-- Модалка создания/редактирования пользователя -->
     <div id="userModal" class="modal">
         <div class="modal-content">
-            <div class="modal-header" id="modalTitle">Создать пользователя</div>
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <div class="modal-title-wrapper">
+                        <h3 class="modal-title" id="modalTitle">Создать пользователя</h3>
+                        <p class="modal-subtitle" id="modalSubtitle">Создайте новую учетную запись и назначьте роль</p>
+                    </div>
+                </div>
+                <button type="button" class="icon-btn modal-close" onclick="closeModal()" aria-label="Закрыть модальное окно">
+                    <span class="material-icons" aria-hidden="true">close</span>
+                </button>
+            </div>
             <div class="modal-body">
-                <form id="userForm">
+                <form id="userForm" class="modal-form">
                     <input type="hidden" id="userId">
-                    
-                    <div class="form-group">
-                        <label for="username">Имя пользователя *</label>
-                        <input type="text" id="username" required>
-                    </div>
 
-                    <div class="form-group" id="passwordGroup">
-                        <label for="password" id="passwordLabel">Пароль *</label>
-                        <input type="password" id="password" required>
-                        <small style="color: #666; font-size: 12px; display: none;" id="passwordHint">
-                            Оставьте пустым, если не хотите менять пароль
-                        </small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="fullName">ФИО *</label>
-                        <input type="text" id="fullName" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="roleId">Роль *</label>
-                        <select id="roleId" required>
-                            <!-- Будет заполнено через JS -->
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <div class="admin-checkbox">
-                            <input type="checkbox" id="isAdmin">
-                            <label for="isAdmin">Администратор системы</label>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="username">Имя пользователя *</label>
+                            <input type="text" id="username" required>
                         </div>
-                    </div>
 
-                    <div class="form-group">
-                        <div class="active-checkbox">
-                            <input type="checkbox" id="isActive" checked>
-                            <label for="isActive">Активен</label>
+                        <div class="form-group" id="passwordGroup">
+                            <label for="password" id="passwordLabel">Пароль *</label>
+                            <input type="password" id="password" required>
+                            <small id="passwordHint" class="form-hинt hidden">
+                                Оставьте пустым, если не хотите менять пароль
+                            </small>
+                        </div>
+
+                        <div class="form-group span-2">
+                            <label for="fullName">ФИО *</label>
+                            <input type="text" id="fullName" required>
+                        </div>
+
+                        <div class="form-group span-2">
+                            <label>Роль *</label>
+                            <input type="hidden" id="roleId" name="roleId">
+                            <div class="role-selector" id="roleOptions" role="radiogroup" aria-label="Выбор роли">
+                                <!-- Будет заполнено через JS -->
+                            </div>
+                        </div>
+
+                        <div class="form-group span-2 checklist-row">
+                            <label class="inline-check" for="isAdmin">
+                                <input type="checkbox" id="isAdmin">
+                                <span class="inline-check-text">
+                                    <span class="inline-check-title">Администратор системы</span>
+                                    <span class="inline-check-note">Полный доступ к настройкам и правам</span>
+                                </span>
+                                <span class="inline-check-marker" aria-hidden="true">
+                                    <span class="material-icons">check</span>
+                                </span>
+                            </label>
+                            <label class="inline-check" for="isActive">
+                                <input type="checkbox" id="isActive" checked>
+                                <span class="inline-check-text">
+                                    <span class="inline-check-title">Активен</span>
+                                    <span class="inline-check-note">Пользователь может входить в систему</span>
+                                </span>
+                                <span class="inline-check-marker" aria-hidden="true">
+                                    <span class="material-icons">check</span>
+                                </span>
+                            </label>
                         </div>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn-cancel" onclick="closeModal()">Отмена</button>
-                <button type="submit" form="userForm" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+                <button type="submit" form="userForm" class="btn btn-primary">Сохранить</button>
             </div>
         </div>
     </div>
@@ -133,24 +156,64 @@
     <!-- Модалка управления правами -->
     <div id="permissionsModal" class="modal">
         <div class="modal-content">
-            <div class="modal-header">Права доступа</div>
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <div class="modal-title-wrapper">
+                        <h3 class="modal-title" id="permissionsTitle">Права доступа</h3>
+                        <p class="modal-subtitle" id="permissionsSubtitle">Настройте доступ к разделам платформы</p>
+                    </div>
+                </div>
+                <button type="button" class="icon-btn modal-close" onclick="closePermissionsModal()" aria-label="Закрыть модальное окно">
+                    <span class="material-icons" aria-hidden="true">close</span>
+                </button>
+            </div>
             <div class="modal-body">
                 <div id="permissionsContent">
                     <!-- Будет заполнено через JS -->
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn-cancel" onclick="closePermissionsModal()">Отмена</button>
-                <button class="btn-primary" onclick="savePermissions()">Сохранить</button>
+                <button class="btn btn-ghost" onclick="closePermissionsModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="savePermissions()">Сохранить</button>
             </div>
         </div>
     </div>
 
     <script>
-        let users = [];
-        let roles = [];
-        let permissions = [];
-        let currentUserId = null;
+    const normalizeKey = (value) => (value || '').toString().trim().toLowerCase().replace(/[^a-z0-9а-яё]+/gi, '-');
+    const roleIconMap = {
+        admin: 'admin_panel_settings',
+        administrator: 'admin_panel_settings',
+        'администратор': 'admin_panel_settings',
+        operator: 'support_agent',
+        'оператор': 'support_agent',
+        analyst: 'analytics',
+        'аналитик': 'analytics',
+        trainee: 'school',
+        'стажер': 'school',
+        'стажёр': 'school',
+        support: 'support_agent'
+    };
+    const roleBadgeClassMap = {
+        admin: 'admin',
+        administrator: 'admin',
+        'администратор': 'admin',
+        operator: 'operator',
+        'оператор': 'operator',
+        analyst: 'analyst',
+        'аналитик': 'analyst',
+        trainee: 'trainee',
+        'стажер': 'trainee',
+        'стажёр': 'trainee'
+    };
+    let users = [];
+    let roles = [];
+    let permissions = [];
+    let currentUserId = null;
+    let selectedRoleId = null;
+
+    const showElement = (element) => element.classList.remove('hidden');
+    const hideElement = (element) => element.classList.add('hidden');
 
         // Загрузка данных
         async function loadData() {
@@ -177,68 +240,189 @@
         function renderUsers() {
             const tbody = document.getElementById('usersTableBody');
             tbody.innerHTML = users.map(user => {
-                // Главного админа (id=1) нельзя редактировать/удалять
                 const isMainAdmin = user.id === 1 && user.is_admin;
-                const disabledStyle = isMainAdmin ? 'opacity: 0.5; cursor: not-allowed;' : '';
-                
+                const normalizedRole = normalizeKey(user.role_name);
+                const roleIcon = roleIconMap[normalizedRole] || 'badge';
+                const badgeKey = roleBadgeClassMap[normalizedRole];
+                const roleBadgeClass = badgeKey ? badgeKey : '';
+                const statusIcon = user.is_active ? 'check_circle' : 'do_not_disturb_on';
+                const statusText = user.is_active ? 'Активен' : 'Неактивен';
+                const createdAt = user.created_at ? new Date(user.created_at).toLocaleDateString('ru') : '—';
+
+                const roleClasses = roleBadgeClass ? `role-icon ${roleBadgeClass}` : 'role-icon';
+                const roleIconHtml = `
+                    <span class="${roleClasses}" title="${user.role_name}" aria-label="Роль: ${user.role_name}">
+                        <span class="material-icons" aria-hidden="true">${roleIcon}</span>
+                    </span>
+                `;
+
+                const statusClasses = user.is_active ? 'status-icon ok' : 'status-icon off';
+                const statusIconHtml = `
+                    <span class="${statusClasses}" role="status" title="${statusText}" aria-label="Статус: ${statusText}">
+                        <span class="material-icons" aria-hidden="true">${statusIcon}</span>
+                    </span>
+                `;
+
+                const actions = isMainAdmin
+                    ? '<span class="system-note system-note--admin">Системный администратор</span>'
+                    : `
+                        <div class="action-buttons">
+                            <button type="button" class="icon-btn edit" title="Редактировать" aria-label="Редактировать пользователя" onclick="editUser(${user.id})">
+                                <span class="material-icons" aria-hidden="true">edit</span>
+                            </button>
+                            <button type="button" class="icon-btn permissions" title="Права доступа" aria-label="Изменить права доступа" onclick="managePermissions(${user.id})">
+                                <span class="material-icons" aria-hidden="true">lock</span>
+                            </button>
+                            <button type="button" class="icon-btn delete" title="Удалить пользователя" aria-label="Удалить пользователя" onclick="deleteUser(${user.id})">
+                                <span class="material-icons" aria-hidden="true">delete</span>
+                            </button>
+                        </div>
+                    `;
+
                 return `
-                <tr>
-                    <td>${user.id}</td>
-                    <td>${user.username}</td>
-                    <td>${user.full_name}</td>
-                    <td>
-                        <span class="user-badge badge-${user.role_name.toLowerCase()}">
-                            ${user.role_name}${user.is_admin ? ' (Админ)' : ''}
-                        </span>
-                    </td>
-                    <td class="status-cell">
-                        <span class="status-indicator ${user.is_active ? 'status-active' : 'status-inactive'}" title="${user.is_active ? 'Активен' : 'Неактивен'}">
-                            <span class="material-icons">${user.is_active ? 'check_circle' : 'do_not_disturb_on'}</span>
-                        </span>
-                    </td>
-                    <td>${new Date(user.created_at).toLocaleDateString('ru')}</td>
-                    <td>
-                        ${isMainAdmin ? 
-                            `<span class="system-admin-badge">Системный администратор</span>` :
-                            `
-                            <div class="users-actions">
-                                <button class="icon-btn icon-btn-edit" onclick="editUser(${user.id})" title="Редактировать">
-                                    <span class="material-icons">edit</span>
-                                </button>
-                                <button class="icon-btn icon-btn-permissions" onclick="managePermissions(${user.id})" title="Права доступа">
-                                    <span class="material-icons">lock_person</span>
-                                </button>
-                                <button class="icon-btn icon-btn-delete" onclick="deleteUser(${user.id})" title="Удалить">
-                                    <span class="material-icons">delete</span>
-                                </button>
-                            </div>
-                            `
-                        }
-                    </td>
-                </tr>
+                    <tr>
+                        <td>${user.id}</td>
+                        <td>${user.username}</td>
+                        <td>${user.full_name}</td>
+                        <td class="role-cell">${roleIconHtml}</td>
+                        <td class="status-cell">${statusIconHtml}</td>
+                        <td>${createdAt}</td>
+                        <td class="actions-cell">${actions}</td>
+                    </tr>
                 `;
             }).join('');
         }
 
         // Отрисовка опций ролей
-        function renderRoleOptions() {
-            const select = document.getElementById('roleId');
-            select.innerHTML = roles.map(role => `
-                <option value="${role.id}">${role.name} - ${role.description}</option>
-            `).join('');
+        function renderRoleOptions(preselectedId) {
+            const container = document.getElementById('roleOptions');
+            const hiddenInput = document.getElementById('roleId');
+            if (!container || !hiddenInput) return;
+
+            const parsedPreselected = Number(preselectedId);
+            if (!Number.isNaN(parsedPreselected)) {
+                selectedRoleId = parsedPreselected;
+            } else if (selectedRoleId === null && hiddenInput.value) {
+                const currentHidden = Number(hiddenInput.value);
+                if (!Number.isNaN(currentHidden)) {
+                    selectedRoleId = currentHidden;
+                }
+            }
+
+            if ((selectedRoleId === null || Number.isNaN(selectedRoleId)) && roles.length > 0) {
+                selectedRoleId = roles[0].id;
+            }
+
+            container.innerHTML = '';
+
+            roles.forEach((role) => {
+                const option = document.createElement('label');
+                option.className = 'role-option';
+                option.dataset.roleId = role.id;
+                option.setAttribute('role', 'radio');
+                option.setAttribute('aria-checked', 'false');
+                option.setAttribute('aria-label', role.description ? `${role.name}. ${role.description}` : `Роль ${role.name}`);
+                option.setAttribute('title', role.description || role.name);
+                option.tabIndex = -1;
+
+                const note = role.description
+                    ? `<span class="role-option-note">${role.description}</span>`
+                    : '';
+
+                option.innerHTML = `
+                    <input type="radio" name="roleOption" value="${role.id}">
+                    <span class="role-option-text">
+                        <span class="role-option-title">${role.name}</span>
+                        ${note}
+                    </span>
+                    <span class="role-option-marker" aria-hidden="true">
+                        <span class="material-icons">check</span>
+                    </span>
+                `;
+
+                option.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    selectRole(role.id, { focusOption: true });
+                });
+                option.addEventListener('keydown', handleRoleOptionKeydown);
+
+                container.appendChild(option);
+            });
+
+            selectRole(selectedRoleId, { focusOption: false });
+        }
+
+        function selectRole(roleId, { focusOption = false } = {}) {
+            if (roleId === null || roleId === undefined) return;
+
+            const numericRoleId = Number(roleId);
+            if (Number.isNaN(numericRoleId)) return;
+
+            selectedRoleId = numericRoleId;
+            const hiddenInput = document.getElementById('roleId');
+            if (hiddenInput) {
+                hiddenInput.value = selectedRoleId;
+            }
+
+            const options = Array.from(document.querySelectorAll('.role-option'));
+            options.forEach((option) => {
+                const optionRoleId = Number(option.dataset.roleId);
+                const isActive = optionRoleId === selectedRoleId;
+                option.classList.toggle('active', isActive);
+                option.setAttribute('aria-checked', isActive ? 'true' : 'false');
+                option.tabIndex = isActive ? 0 : -1;
+                const optionInput = option.querySelector('input[type="radio"]');
+                if (optionInput) {
+                    optionInput.checked = isActive;
+                }
+                if (isActive && focusOption) {
+                    option.focus();
+                }
+            });
+        }
+
+        function handleRoleOptionKeydown(event) {
+            const { key } = event;
+            const option = event.currentTarget;
+            const roleId = Number(option.dataset.roleId);
+
+            if (key === ' ' || key === 'Spacebar' || key === 'Enter') {
+                event.preventDefault();
+                selectRole(roleId, { focusOption: true });
+                return;
+            }
+
+            if (key === 'ArrowRight' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowUp') {
+                event.preventDefault();
+                const options = Array.from(document.querySelectorAll('.role-option'));
+                const currentIndex = options.indexOf(option);
+                if (currentIndex === -1) return;
+
+                const isForward = key === 'ArrowRight' || key === 'ArrowDown';
+                const nextIndex = (currentIndex + (isForward ? 1 : -1) + options.length) % options.length;
+                const nextOption = options[nextIndex];
+                if (nextOption) {
+                    const nextRoleId = Number(nextOption.dataset.roleId);
+                    selectRole(nextRoleId, { focusOption: true });
+                }
+            }
         }
 
         // Открыть модалку создания
         function openCreateModal() {
             document.getElementById('modalTitle').textContent = 'Создать пользователя';
+            document.getElementById('modalIcon').textContent = 'person_add';
+            document.getElementById('modalSubtitle').textContent = 'Создайте новую учетную запись и назначьте роль';
             document.getElementById('userForm').reset();
             document.getElementById('userId').value = '';
-            document.getElementById('passwordGroup').style.display = 'block';
+            showElement(document.getElementById('passwordGroup'));
             document.getElementById('password').required = true;
             document.getElementById('password').value = '';
             document.getElementById('passwordLabel').textContent = 'Пароль *';
-            document.getElementById('passwordHint').style.display = 'none';
+            hideElement(document.getElementById('passwordHint'));
             document.getElementById('isActive').checked = true;
+            selectedRoleId = roles.length > 0 ? roles[0].id : null;
+            renderRoleOptions(selectedRoleId);
             document.getElementById('userModal').classList.add('active');
         }
 
@@ -248,19 +432,22 @@
             if (!user) return;
 
             document.getElementById('modalTitle').textContent = 'Редактировать пользователя';
+            document.getElementById('modalIcon').textContent = 'edit';
+            document.getElementById('modalSubtitle').textContent = 'Обновите данные, роли и статусы пользователя';
             document.getElementById('userId').value = user.id;
             document.getElementById('username').value = user.username;
             document.getElementById('fullName').value = user.full_name;
-            document.getElementById('roleId').value = user.role_id;
             document.getElementById('isAdmin').checked = user.is_admin;
             document.getElementById('isActive').checked = user.is_active;
+            selectedRoleId = user.role_id;
+            renderRoleOptions(selectedRoleId);
             
             // Показываем поле пароля, но делаем необязательным
-            document.getElementById('passwordGroup').style.display = 'block';
+            showElement(document.getElementById('passwordGroup'));
             document.getElementById('password').required = false;
             document.getElementById('password').value = '';
             document.getElementById('passwordLabel').textContent = 'Новый пароль (опционально)';
-            document.getElementById('passwordHint').style.display = 'block';
+            showElement(document.getElementById('passwordHint'));
             
             document.getElementById('userModal').classList.add('active');
         }
@@ -275,10 +462,18 @@
             e.preventDefault();
 
             const userId = document.getElementById('userId').value;
+            const roleInput = document.getElementById('roleId');
+            const roleIdValue = Number(roleInput.value);
+
+            if (!roleInput.value || Number.isNaN(roleIdValue)) {
+                alert('Выберите роль для пользователя');
+                return;
+            }
+
             const data = {
                 username: document.getElementById('username').value,
                 full_name: document.getElementById('fullName').value,
-                role_id: parseInt(document.getElementById('roleId').value),
+                role_id: roleIdValue,
                 is_admin: document.getElementById('isAdmin').checked,
                 is_active: document.getElementById('isActive').checked
             };
@@ -344,31 +539,38 @@
                 const userPerms = (await response.json()).permissions;
 
                 const content = document.getElementById('permissionsContent');
+                document.getElementById('permissionsTitle').textContent = 'Права доступа';
+                document.getElementById('permissionsSubtitle').textContent = `Настройте доступ для ${user.full_name}`;
                 content.innerHTML = `
-                    <div style="padding: 20px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
-                        <div style="margin-bottom: 8px;">
-                            <strong style="color: #333;">Пользователь:</strong> 
-                            <span style="color: #666;">${user.full_name} (${user.username})</span>
+                    <div class="permissions-summary">
+                        <div class="permissions-summary-row">
+                            <span class="permissions-summary-label">Пользователь</span>
+                            <span class="permissions-summary-value">${user.full_name} (${user.username})</span>
                         </div>
-                        <div>
-                            <strong style="color: #333;">Роль:</strong> 
-                            <span style="color: #666;">${user.role_name}</span>
+                        <div class="permissions-summary-row">
+                            <span class="permissions-summary-label">Роль</span>
+                            <span class="permissions-summary-value">${user.role_name}</span>
                         </div>
                     </div>
-                    <div class="checkbox-group">
-                        ${permissions.map(perm => `
-                            <div class="checkbox-item ${userPerms.includes(perm.page_key) ? 'checked' : ''}" 
-                                 onclick="toggleCheckbox(this)">
-                                <input type="checkbox" 
-                                       id="perm-${perm.id}" 
-                                       value="${perm.page_key}"
-                                       ${userPerms.includes(perm.page_key) ? 'checked' : ''}
-                                       onclick="event.stopPropagation(); updateCheckboxItem(this)">
-                                <label for="perm-${perm.id}">
-                                    <strong>${perm.page_name}</strong> - ${perm.description}
+                    <div class="permissions-grid">
+                        ${permissions.map(perm => {
+                            const isChecked = userPerms.includes(perm.page_key);
+                            const normalizedKey = (perm.page_key || '').toLowerCase();
+                            return `
+                                <label class="permission-card permission-${normalizedKey} ${isChecked ? 'checked' : ''}">
+                                    <input type="checkbox"
+                                           id="perm-${perm.id}"
+                                           value="${perm.page_key}"
+                                           ${isChecked ? 'checked' : ''}
+                                           onchange="updateCheckboxItem(this)">
+                                    <span class="permission-text">
+                                        <span class="permission-title">${perm.page_name}</span>
+                                        <span class="permission-description">${perm.description}</span>
+                                    </span>
+                                    <span class="permission-marker" aria-hidden="true"></span>
                                 </label>
-                            </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
                 `;
 
@@ -408,42 +610,16 @@
             document.getElementById('permissionsModal').classList.remove('active');
         }
 
-        // Переключение чекбокса при клике на item
-        function toggleCheckbox(item) {
-            const checkbox = item.querySelector('input[type="checkbox"]');
-            checkbox.checked = !checkbox.checked;
-            updateCheckboxItem(checkbox);
-        }
-
         // Обновление визуального состояния чекбокса
         function updateCheckboxItem(checkbox) {
-            const item = checkbox.closest('.checkbox-item');
-            if (checkbox.checked) {
-                item.classList.add('checked');
-            } else {
-                item.classList.remove('checked');
+            const card = checkbox.closest('.permission-card');
+            if (!card) {
+                return;
             }
+            card.classList.toggle('checked', checkbox.checked);
         }
 
-        // Сворачивание сайдбара
-        function toggleSidebar() {
-            const sidebar = document.querySelector('.sidebar');
-            const toggle = document.querySelector('.sidebar-toggle');
-            const icon = toggle.querySelector('.material-icons');
-            const isCollapsed = sidebar.classList.toggle('collapsed');
-            icon.textContent = isCollapsed ? 'chevron_right' : 'chevron_left';
-            localStorage.setItem('sidebarCollapsed', isCollapsed);
-        }
-
-        // Восстановление состояния сайдбара
         document.addEventListener('DOMContentLoaded', () => {
-            const collapsed = localStorage.getItem('sidebarCollapsed') === 'true';
-            if (collapsed) {
-                document.querySelector('.sidebar').classList.add('collapsed');
-                const icon = document.querySelector('.sidebar-toggle .material-icons');
-                icon.textContent = 'chevron_right';
-            }
-            
             loadData();
         });
 
