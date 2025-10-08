@@ -81,6 +81,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <div class="modal-title-group">
+                    <span class="material-icons modal-header-icon" id="modalIcon" aria-hidden="true">person_add</span>
                     <div class="modal-title-wrapper">
                         <h3 class="modal-title" id="modalTitle">Создать пользователя</h3>
                         <p class="modal-subtitle" id="modalSubtitle">Создайте новую учетную запись и назначьте роль</p>
@@ -91,58 +92,62 @@
                 </button>
             </div>
             <div class="modal-body">
-                <form id="userForm" class="modal-form">
+                <form id="userForm">
                     <input type="hidden" id="userId">
+                    
+                    <div class="form-group">
+                        <label for="username">Имя пользователя *</label>
+                        <input type="text" id="username" required>
+                    </div>
 
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label for="username">Имя пользователя *</label>
-                            <input type="text" id="username" required>
+                    <div class="form-group" id="passwordGroup">
+                        <label for="password" id="passwordLabel">Пароль *</label>
+                        <input type="password" id="password" required>
+                        <small id="passwordHint" class="form-hint hidden">
+                            Оставьте пустым, если не хотите менять пароль
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="fullName">ФИО *</label>
+                        <input type="text" id="fullName" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Роль *</label>
+                        <input type="hidden" id="roleId" name="roleId">
+                        <div class="role-selector" id="roleOptions" role="radiogroup" aria-label="Выбор роли">
+                            <!-- Будет заполнено через JS -->
                         </div>
+                    </div>
 
-                        <div class="form-group" id="passwordGroup">
-                            <label for="password" id="passwordLabel">Пароль *</label>
-                            <input type="password" id="password" required>
-                            <small id="passwordHint" class="form-hинt hidden">
-                                Оставьте пустым, если не хотите менять пароль
-                            </small>
-                        </div>
-
-                        <div class="form-group span-2">
-                            <label for="fullName">ФИО *</label>
-                            <input type="text" id="fullName" required>
-                        </div>
-
-                        <div class="form-group span-2">
-                            <label>Роль *</label>
-                            <input type="hidden" id="roleId" name="roleId">
-                            <div class="role-selector" id="roleOptions" role="radiogroup" aria-label="Выбор роли">
-                                <!-- Будет заполнено через JS -->
-                            </div>
-                        </div>
-
-                        <div class="form-group span-2 checklist-row">
-                            <label class="inline-check" for="isAdmin">
-                                <input type="checkbox" id="isAdmin">
-                                <span class="inline-check-text">
-                                    <span class="inline-check-title">Администратор системы</span>
-                                    <span class="inline-check-note">Полный доступ к настройкам и правам</span>
+                    <div class="form-group checkbox-row">
+                        <label class="checkbox-card admin" for="isAdmin">
+                            <input type="checkbox" id="isAdmin">
+                            <span class="checkbox-card-visual">
+                                <span class="checkbox-icon material-icons" aria-hidden="true">admin_panel_settings</span>
+                                <span class="checkbox-label">
+                                    <span class="checkbox-title">Администратор системы</span>
+                                    <span class="checkbox-note">Полный доступ к настройкам и правам</span>
                                 </span>
-                                <span class="inline-check-marker" aria-hidden="true">
-                                    <span class="material-icons">check</span>
+                            </span>
+                            <span class="checkbox-marker" aria-hidden="true">
+                                <span class="material-icons">check_circle</span>
+                            </span>
+                        </label>
+                        <label class="checkbox-card active" for="isActive">
+                            <input type="checkbox" id="isActive" checked>
+                            <span class="checkbox-card-visual">
+                                <span class="checkbox-icon material-icons" aria-hidden="true">verified_user</span>
+                                <span class="checkbox-label">
+                                    <span class="checkbox-title">Активен</span>
+                                    <span class="checkbox-note">Пользователь может входить в систему</span>
                                 </span>
-                            </label>
-                            <label class="inline-check" for="isActive">
-                                <input type="checkbox" id="isActive" checked>
-                                <span class="inline-check-text">
-                                    <span class="inline-check-title">Активен</span>
-                                    <span class="inline-check-note">Пользователь может входить в систему</span>
-                                </span>
-                                <span class="inline-check-marker" aria-hidden="true">
-                                    <span class="material-icons">check</span>
-                                </span>
-                            </label>
-                        </div>
+                            </span>
+                            <span class="checkbox-marker" aria-hidden="true">
+                                <span class="material-icons">check_circle</span>
+                            </span>
+                        </label>
                     </div>
                 </form>
             </div>
@@ -158,6 +163,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <div class="modal-title-group">
+                    <span class="material-icons modal-header-icon" id="permissionsIcon" aria-hidden="true">lock</span>
                     <div class="modal-title-wrapper">
                         <h3 class="modal-title" id="permissionsTitle">Права доступа</h3>
                         <p class="modal-subtitle" id="permissionsSubtitle">Настройте доступ к разделам платформы</p>
@@ -206,6 +212,19 @@
         'стажер': 'trainee',
         'стажёр': 'trainee'
     };
+    const permissionIconMap = {
+        admin: 'tune',
+        permissions: 'admin_panel_settings',
+        users: 'groups',
+        roles: 'verified',
+        knowledge: 'menu_book',
+        dashboard: 'insights',
+        tickets: 'support_agent',
+        requests: 'assignment',
+        simulator: 'sports_esports',
+        analytics: 'query_stats'
+    };
+
     let users = [];
     let roles = [];
     let permissions = [];
@@ -316,34 +335,28 @@
             container.innerHTML = '';
 
             roles.forEach((role) => {
-                const option = document.createElement('label');
-                option.className = 'role-option';
+                const normalizedRole = normalizeKey(role.name);
+                const iconName = roleIconMap[normalizedRole] || 'badge';
+                const badgeKey = roleBadgeClassMap[normalizedRole] || '';
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = `role-option${badgeKey ? ` ${badgeKey}` : ''}`;
                 option.dataset.roleId = role.id;
                 option.setAttribute('role', 'radio');
-                option.setAttribute('aria-checked', 'false');
-                option.setAttribute('aria-label', role.description ? `${role.name}. ${role.description}` : `Роль ${role.name}`);
+
                 option.setAttribute('title', role.description || role.name);
-                option.tabIndex = -1;
-
-                const note = role.description
-                    ? `<span class="role-option-note">${role.description}</span>`
-                    : '';
-
+                option.setAttribute('aria-label', `Роль ${role.name}`);
                 option.innerHTML = `
-                    <input type="radio" name="roleOption" value="${role.id}">
-                    <span class="role-option-text">
-                        <span class="role-option-title">${role.name}</span>
-                        ${note}
+                    <span class="role-option-icon" aria-hidden="true">
+                        <span class="material-icons">${iconName}</span>
                     </span>
+                    <span class="role-option-title">${role.name}</span>
                     <span class="role-option-marker" aria-hidden="true">
-                        <span class="material-icons">check</span>
+                        <span class="material-icons">radio_button_unchecked</span>
                     </span>
                 `;
 
-                option.addEventListener('click', (event) => {
-                    event.preventDefault();
-                    selectRole(role.id, { focusOption: true });
-                });
+                option.addEventListener('click', () => selectRole(role.id, { focusOption: true }));
                 option.addEventListener('keydown', handleRoleOptionKeydown);
 
                 container.appendChild(option);
@@ -371,9 +384,9 @@
                 option.classList.toggle('active', isActive);
                 option.setAttribute('aria-checked', isActive ? 'true' : 'false');
                 option.tabIndex = isActive ? 0 : -1;
-                const optionInput = option.querySelector('input[type="radio"]');
-                if (optionInput) {
-                    optionInput.checked = isActive;
+                const markerIcon = option.querySelector('.role-option-marker .material-icons');
+                if (markerIcon) {
+                    markerIcon.textContent = isActive ? 'radio_button_checked' : 'radio_button_unchecked';
                 }
                 if (isActive && focusOption) {
                     option.focus();
@@ -556,6 +569,7 @@
                         ${permissions.map(perm => {
                             const isChecked = userPerms.includes(perm.page_key);
                             const normalizedKey = (perm.page_key || '').toLowerCase();
+                            const iconName = permissionIconMap[normalizedKey] || 'check_circle';
                             return `
                                 <label class="permission-card permission-${normalizedKey} ${isChecked ? 'checked' : ''}">
                                     <input type="checkbox"
@@ -563,11 +577,14 @@
                                            value="${perm.page_key}"
                                            ${isChecked ? 'checked' : ''}
                                            onchange="updateCheckboxItem(this)">
+                                    <span class="permission-icon material-icons" aria-hidden="true">${iconName}</span>
                                     <span class="permission-text">
                                         <span class="permission-title">${perm.page_name}</span>
                                         <span class="permission-description">${perm.description}</span>
                                     </span>
-                                    <span class="permission-marker" aria-hidden="true"></span>
+                                    <span class="permission-marker" aria-hidden="true">
+                                        <span class="material-icons">check</span>
+                                    </span>
                                 </label>
                             `;
                         }).join('')}

@@ -1,0 +1,533 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Support Desk</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/navigation.js"></script>
+    <script src="/static/menu_loader.js"></script>
+</head>
+<body>
+    <div class="layout">
+        <!-- Сайдбар с навигацией -->
+        <aside class="sidebar">
+            <div class="sidebar-content">
+                <div class="sidebar-header">
+                    <h1>Support Desk</h1>
+                </div>
+                
+                <!-- Главная навигация -->
+                <div class="sidebar-section">
+                    <div class="sidebar-section-title">Навигация</div>
+                    <div class="main-nav" id="mainNav">
+                        <!-- Меню загружается динамически -->
+                    </div>
+                </div>
+                
+                <!-- Вкладки -->
+                <div class="sidebar-section">
+                    <div class="sidebar-section-title">Заявки</div>
+                    <div class="tabs">
+                        <button id="activeTab" class="tab-button active" data-tab="active">
+                            <span class="material-icons">check_circle</span>
+                            <span class="btn-text">Активные</span>
+                        </button>
+                        <button id="archivedTab" class="tab-button" data-tab="archived">
+                            <span class="material-icons">archive</span>
+                            <span class="btn-text">Архив</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <ul id="conversations" class="conversation-list"></ul>
+            </div>
+            
+            <div class="sidebar-footer">
+                <form id="logoutForm" method="post" action="/logout">
+                    <button type="submit" class="logout-btn">
+                        <span class="material-icons">logout</span>
+                        <span class="btn-text">Выйти</span>
+                    </button>
+                </form>
+            </div>
+        </aside>
+        
+        <!-- Основной контент -->
+        <main class="main-content chat-page">
+            <section id="placeholder" class="placeholder">
+                <p>Нет активных заявок. Ожидаем обращения пользователей.</p>
+            </section>
+            <section id="chatPanel" class="chat chat-panel hidden">
+                <div class="chat-top">
+                    <header class="chat-panel__header">
+                        <h2 id="chatTitle">Заявка</h2>
+                        <button id="finishButton" type="button" class="btn-end-game">
+                            <span class="btn-label">Завершить заявку</span>
+                        </button>
+                    </header>
+                    <div id="summaryPanel" class="summary-panel">
+                        <div class="summary-header">
+                            <span class="material-icons">description</span>
+                            <span class="summary-title">Краткое содержание</span>
+                        </div>
+                        <div id="summaryContent" class="summary-content">
+                            <div class="summary-loading">Загрузка саммари...</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="messages" class="messages"></div>
+                <form id="replyForm" class="reply-form" autocomplete="off">
+                    <div class="message-input-container">
+                        <textarea id="messageInput" placeholder="Ответьте клиенту" required rows="1"></textarea>
+                        <button type="submit" class="send-button" title="Отправить (Enter)">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const conversationsList = document.getElementById('conversations');
+        const messagesContainer = document.getElementById('messages');
+        const chatTitle = document.getElementById('chatTitle');
+        const replyForm = document.getElementById('replyForm');
+        const messageInput = document.getElementById('messageInput');
+        const placeholder = document.getElementById('placeholder');
+        const chatPanel = document.getElementById('chatPanel');
+        const finishButton = document.getElementById('finishButton');
+        const activeTab = document.getElementById('activeTab');
+        const archivedTab = document.getElementById('archivedTab');
+        const summaryPanel = document.getElementById('summaryPanel');
+        const summaryContent = document.getElementById('summaryContent');
+
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        let conversationSocket = null;
+        let chatSocket = null;
+        let conversations = [];
+        let activeConversationId = null;
+        let markingRead = false;
+        let currentTab = 'active';
+
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleString('ru-RU');
+        }
+
+        function closeChatSocket() {
+            if (chatSocket) {
+                chatSocket.close();
+                chatSocket = null;
+            }
+        }
+
+        function hideChatPanel() {
+            closeChatSocket();
+            activeConversationId = null;
+            chatPanel.classList.add('hidden');
+            placeholder.classList.remove('hidden');
+            replyForm.reset();
+        }
+
+        function renderConversations(conversationsData) {
+            conversations = conversationsData;
+            if (activeConversationId && !conversations.some((item) => item.id === activeConversationId)) {
+                hideChatPanel();
+            }
+
+            conversationsList.innerHTML = '';
+
+            if (!conversations.length) {
+                hideChatPanel();
+                return;
+            }
+
+            conversations.forEach((conversation) => {
+                const item = document.createElement('li');
+                item.dataset.id = conversation.id;
+                item.classList.add('conversation-item');
+
+                if (conversation.id === activeConversationId) {
+                    item.classList.add('active');
+                }
+
+                const content = document.createElement('div');
+                content.className = 'conversation-content';
+
+                const title = document.createElement('div');
+                title.className = 'conversation-title';
+                title.textContent = `Заявка #${conversation.id}`;
+
+                const meta = document.createElement('div');
+                meta.className = 'conversation-meta';
+                meta.textContent = formatTimestamp(conversation.updated_at);
+
+                content.appendChild(title);
+                content.appendChild(meta);
+
+                item.appendChild(content);
+
+                if (conversation.unread_count > 0 && conversation.id !== activeConversationId) {
+                    const badge = document.createElement('span');
+                    badge.className = 'conversation-badge';
+                    badge.textContent = conversation.unread_count > 99 ? '99+' : conversation.unread_count;
+                    item.appendChild(badge);
+                    item.classList.add('unread');
+                }
+
+                item.addEventListener('click', () => toggleConversation(conversation.id));
+                conversationsList.appendChild(item);
+            });
+        }
+
+        function renderMessages(messages) {
+            messagesContainer.innerHTML = '';
+            messages.forEach((message) => appendMessage(message));
+            scrollMessagesToBottom();
+        }
+
+        function appendMessage(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message chat-message-${message.sender}`;
+            
+            // Выбираем иконку в зависимости от отправителя (Material Icons)
+            let icon = 'person';
+            switch(message.sender) {
+                case 'user':
+                    icon = 'person'; // Пользователь
+                    break;
+                case 'bot':
+                    icon = 'smart_toy'; // Бот
+                    break;
+                case 'operator':
+                    icon = 'support_agent'; // Оператор
+                    break;
+            }
+            
+            messageDiv.innerHTML = `
+                <div class="message-avatar"><span class="material-icons">${icon}</span></div>
+                <div class="message-content">
+                    <div class="message-text">${message.text}</div>
+                    <div class="message-meta">${formatTimestamp(message.created_at)}</div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+        }
+
+        function scrollMessagesToBottom() {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        async function loadConversations() {
+            try {
+                const url = currentTab === 'archived' ? '/api/conversations?archived=true' : '/api/conversations';
+                const response = await fetch(url, { credentials: 'same-origin' });
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error('Не удалось загрузить список диалогов');
+                }
+                const data = await response.json();
+                renderConversations(data);
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        async function loadMessages(conversationId) {
+            try {
+                const response = await fetch(`/api/conversations/${conversationId}/messages`, {
+                    credentials: 'same-origin',
+                });
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
+                if (response.status === 403) {
+                    hideChatPanel();
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error('Не удалось загрузить сообщения');
+                }
+                const messages = await response.json();
+                if (conversationId !== activeConversationId) {
+                    return;
+                }
+                renderMessages(messages);
+                await markConversationRead(conversationId);
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        async function markConversationRead(conversationId) {
+            if (markingRead) {
+                return;
+            }
+            const conversation = conversations.find((item) => item.id === conversationId);
+            if (!conversation || conversation.unread_count === 0) {
+                return;
+            }
+            markingRead = true;
+            try {
+                const response = await fetch(`/api/conversations/${conversationId}/read`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                });
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
+                if (response.status === 403) {
+                    hideChatPanel();
+                    await loadConversations();
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error('Не удалось обновить статус прочтения');
+                }
+                const updated = await response.json();
+                const index = conversations.findIndex((item) => item.id === updated.id);
+                if (index !== -1) {
+                    conversations[index] = updated;
+                    renderConversations([...conversations]);
+                }
+            } catch (error) {
+                console.error(error);
+            } finally {
+                markingRead = false;
+            }
+        }
+
+        function toggleConversation(conversationId) {
+            if (activeConversationId === conversationId) {
+                hideChatPanel();
+                renderConversations(conversations);
+                return;
+            }
+            selectConversation(conversationId);
+        }
+
+        async function selectConversation(conversationId) {
+            const conversation = conversations.find((item) => item.id === conversationId);
+            if (!conversation) {
+                return;
+            }
+            activeConversationId = conversationId;
+            chatTitle.textContent = conversation.title || `Заявка #${conversation.id}`;
+            placeholder.classList.add('hidden');
+            chatPanel.classList.remove('hidden');
+            
+            // Показываем/скрываем кнопку завершения в зависимости от статуса заявки
+            const isArchived = conversation.status === 'closed' || conversation.status === 'archived';
+            if (isArchived) {
+                finishButton.style.display = 'none';
+                replyForm.style.display = 'none'; // Скрываем форму ответа для архивных диалогов
+            } else {
+                finishButton.style.display = 'block';
+                replyForm.style.display = 'block';
+            }
+            
+            renderConversations(conversations);
+            connectChatSocket(conversationId);
+            loadTicketSummary(conversationId);
+            await loadMessages(conversationId);
+        }
+
+        function connectChatSocket(conversationId) {
+            closeChatSocket();
+            const url = `${wsProtocol}://${window.location.host}/ws/conversations/${conversationId}`;
+            chatSocket = new WebSocket(url);
+
+            chatSocket.onmessage = (event) => {
+                const payload = JSON.parse(event.data);
+                if (payload.type === 'history' && payload.conversation_id === activeConversationId) {
+                    renderMessages(payload.messages);
+                    markConversationRead(conversationId);
+                }
+                if (payload.type === 'message' && payload.conversation_id === activeConversationId) {
+                    appendMessage(payload.message);
+                    scrollMessagesToBottom();
+                    markConversationRead(conversationId);
+                }
+            };
+
+            chatSocket.onclose = (event) => {
+                if (event.code === 4401) {
+                    window.location.href = '/login';
+                    return;
+                }
+                if (activeConversationId === conversationId) {
+                    setTimeout(() => connectChatSocket(conversationId), 2000);
+                }
+            };
+        }
+
+        async function sendReply(event) {
+            event.preventDefault();
+            if (!activeConversationId) {
+                return;
+            }
+            const text = messageInput.value.trim();
+            if (!text) {
+                return;
+            }
+            try {
+                const response = await fetch(`/api/conversations/${activeConversationId}/reply`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text }),
+                });
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
+                if (response.status === 403) {
+                    hideChatPanel();
+                    await loadConversations();
+                    return;
+                }
+                if (!response.ok) {
+                    const detail = await response.json().catch(() => ({}));
+                    throw new Error(detail.detail || 'Ошибка отправки сообщения');
+                }
+                messageInput.value = '';
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function finishConversation() {
+            if (!activeConversationId) {
+                return;
+            }
+            finishButton.disabled = true;
+            try {
+                const response = await fetch(`/api/conversations/${activeConversationId}/finish`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                });
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
+                if (!response.ok) {
+                    const detail = await response.json().catch(() => ({}));
+                    throw new Error(detail.detail || 'Не удалось завершить диалог');
+                }
+                hideChatPanel();
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                finishButton.disabled = false;
+            }
+        }
+
+        function initConversationsSocket() {
+            const url = `${wsProtocol}://${window.location.host}/ws/conversations`;
+            conversationSocket = new WebSocket(url);
+
+            conversationSocket.onmessage = (event) => {
+                const payload = JSON.parse(event.data);
+                if (payload.type === 'conversations') {
+                    renderConversations(payload.conversations);
+                }
+            };
+
+            conversationSocket.onclose = (event) => {
+                if (event.code === 4401) {
+                    window.location.href = '/login';
+                    return;
+                }
+                setTimeout(initConversationsSocket, 2000);
+            };
+        }
+
+        // Обработчики для переключения вкладок
+        function switchTab(tabName) {
+            currentTab = tabName;
+            
+            // Обновляем активную вкладку
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
+            
+            if (tabName === 'active') {
+                activeTab.classList.add('active');
+                placeholder.innerHTML = '<p>Нет активных заявок. Ожидаем обращения пользователей.</p>';
+            } else {
+                archivedTab.classList.add('active');
+                placeholder.innerHTML = '<p>Архивных заявок нет.</p>';
+            }
+            
+            // Скрываем чат при переключении вкладок
+            hideChatPanel();
+            
+            // Загружаем диалоги для выбранной вкладки
+            loadConversations();
+        }
+
+        activeTab.addEventListener('click', () => switchTab('active'));
+        archivedTab.addEventListener('click', () => switchTab('archived'));
+
+        replyForm.addEventListener('submit', sendReply);
+        finishButton.addEventListener('click', finishConversation);
+        
+        // Автоматическое изменение размера textarea
+        messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+        
+        // Отправка по Enter (без Shift)
+        messageInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendReply(event);
+            }
+        });
+        
+        window.addEventListener('beforeunload', closeChatSocket);
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                hideChatPanel();
+                renderConversations(conversations);
+            }
+        });
+
+        // Функции для работы с саммари
+        async function loadTicketSummary(conversationId) {
+            summaryContent.innerHTML = '<div class="summary-loading">Загрузка саммари...</div>';
+            
+            try {
+                const response = await fetch(`/api/conversations/${conversationId}/summary`);
+                if (!response.ok) {
+                    throw new Error('Failed to load summary');
+                }
+                
+                const data = await response.json();
+                displaySummary(data.summary);
+            } catch (error) {
+                console.error('Error loading summary:', error);
+                summaryContent.innerHTML = '<div class="summary-error">Ошибка загрузки саммари</div>';
+            }
+        }
+
+        function displaySummary(summary) {
+            summaryContent.innerHTML = `<div class="summary-text">${summary}</div>`;
+        }
+        loadConversations();
+        initConversationsSocket();
+    </script>
+</body>
+</html>
