@@ -20,4 +20,5 @@ transformers
 SpeechRecognition
 pydub
 imageio[ffmpeg]
-
+bcrypt
+pyngrok

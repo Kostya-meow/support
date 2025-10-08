@@ -69,6 +69,7 @@
                                 <!-- Будет заполнено через JS -->
                             </tbody>
                         </table>
+                        <div class="table-bottom-spacer" aria-hidden="true"></div>
                     </div>
                 </div>
                 </div>
@@ -81,15 +82,24 @@
         <div class="modal-content">
             <div class="modal-header">
                 <div class="modal-title-group">
-                    <span class="material-icons modal-header-icon" id="modalIcon" aria-hidden="true">person_add</span>
+                    <span class="material-icons" id="modalIcon" aria-hidden="true">person_add</span>
                     <div class="modal-title-wrapper">
                         <h3 class="modal-title" id="modalTitle">Создать пользователя</h3>
                         <p class="modal-subtitle" id="modalSubtitle">Создайте новую учетную запись и назначьте роль</p>
                     </div>
                 </div>
-                <button type="button" class="icon-btn modal-close" onclick="closeModal()" aria-label="Закрыть модальное окно">
-                    <span class="material-icons" aria-hidden="true">close</span>
-                </button>
+                <!-- Active toggle placed left of close button with explanatory label -->
+                <div class="modal-header-controls">
+                    <span class="toggle-label">Активность</span>
+                    <button type="button" id="activeToggle" class="toggle-btn" aria-pressed="true" title="Активен / Не активен" onclick="toggleActiveFromHeader()">
+                        <span class="toggle-track">
+                            <span class="toggle-thumb"></span>
+                        </span>
+                    </button>
+                    <button type="button" class="icon-btn modal-close" onclick="closeModal()" aria-label="Закрыть модальное окно">
+                        <span class="material-icons" aria-hidden="true">close</span>
+                    </button>
+                </div>
             </div>
             <div class="modal-body">
                 <form id="userForm">
@@ -122,32 +132,8 @@
                     </div>
 
                     <div class="form-group checkbox-row">
-                        <label class="checkbox-card admin" for="isAdmin">
-                            <input type="checkbox" id="isAdmin">
-                            <span class="checkbox-card-visual">
-                                <span class="checkbox-icon material-icons" aria-hidden="true">admin_panel_settings</span>
-                                <span class="checkbox-label">
-                                    <span class="checkbox-title">Администратор системы</span>
-                                    <span class="checkbox-note">Полный доступ к настройкам и правам</span>
-                                </span>
-                            </span>
-                            <span class="checkbox-marker" aria-hidden="true">
-                                <span class="material-icons">check_circle</span>
-                            </span>
-                        </label>
-                        <label class="checkbox-card active" for="isActive">
-                            <input type="checkbox" id="isActive" checked>
-                            <span class="checkbox-card-visual">
-                                <span class="checkbox-icon material-icons" aria-hidden="true">verified_user</span>
-                                <span class="checkbox-label">
-                                    <span class="checkbox-title">Активен</span>
-                                    <span class="checkbox-note">Пользователь может входить в систему</span>
-                                </span>
-                            </span>
-                            <span class="checkbox-marker" aria-hidden="true">
-                                <span class="material-icons">check_circle</span>
-                            </span>
-                        </label>
+                        <!-- Hidden active checkbox kept for JS/form compatibility; header toggle updates this -->
+                        <input type="checkbox" id="isActive" name="isActive" style="display:none;" />
                     </div>
                 </form>
             </div>
@@ -163,7 +149,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <div class="modal-title-group">
-                    <span class="material-icons modal-header-icon" id="permissionsIcon" aria-hidden="true">lock</span>
+                    <span class="material-icons" id="permissionsIcon" aria-hidden="true">lock</span>
                     <div class="modal-title-wrapper">
                         <h3 class="modal-title" id="permissionsTitle">Права доступа</h3>
                         <p class="modal-subtitle" id="permissionsSubtitle">Настройте доступ к разделам платформы</p>
@@ -421,8 +407,33 @@
             }
         }
 
+    // Toggle sync: header toggle <-> #isActive checkbox
+    function toggleActiveFromHeader() {
+        const checkbox = document.getElementById('isActive');
+        const btn = document.getElementById('activeToggle');
+        if (!checkbox || !btn) return;
+        checkbox.checked = !checkbox.checked;
+        updateActiveToggleVisual(checkbox.checked);
+    }
+
+    function updateActiveToggleVisual(isActive) {
+        const btn = document.getElementById('activeToggle');
+        if (!btn) return;
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        if (isActive) btn.classList.add('on'); else btn.classList.remove('on');
+    }
+
+    // keep visual in sync when form is populated (used by editUser)
+    function setActiveStateFromValue(value) {
+        const checkbox = document.getElementById('isActive');
+        if (!checkbox) return;
+        checkbox.checked = !!value;
+        updateActiveToggleVisual(checkbox.checked);
+    }
+
         // Открыть модалку создания
         function openCreateModal() {
+            console.log('openCreateModal called');
             document.getElementById('modalTitle').textContent = 'Создать пользователя';
             document.getElementById('modalIcon').textContent = 'person_add';
             document.getElementById('modalSubtitle').textContent = 'Создайте новую учетную запись и назначьте роль';
@@ -436,7 +447,10 @@
             document.getElementById('isActive').checked = true;
             selectedRoleId = roles.length > 0 ? roles[0].id : null;
             renderRoleOptions(selectedRoleId);
+            // ensure header toggle reflects the default active state
+            setActiveStateFromValue(true);
             document.getElementById('userModal').classList.add('active');
+            document.body.classList.add('modal-open');
         }
 
         // Редактировать пользователя
@@ -450,8 +464,10 @@
             document.getElementById('userId').value = user.id;
             document.getElementById('username').value = user.username;
             document.getElementById('fullName').value = user.full_name;
-            document.getElementById('isAdmin').checked = user.is_admin;
+            // admin flag removed; no-op
             document.getElementById('isActive').checked = user.is_active;
+            // sync header toggle visual
+            setActiveStateFromValue(user.is_active);
             selectedRoleId = user.role_id;
             renderRoleOptions(selectedRoleId);
             
@@ -463,11 +479,16 @@
             showElement(document.getElementById('passwordHint'));
             
             document.getElementById('userModal').classList.add('active');
+            document.body.classList.add('modal-open');
         }
 
         // Закрыть модалку
         function closeModal() {
             document.getElementById('userModal').classList.remove('active');
+            // if no other modal is open, remove body class
+            if (!document.getElementById('permissionsModal').classList.contains('active')) {
+                document.body.classList.remove('modal-open');
+            }
         }
 
         // Сохранить пользователя
@@ -487,7 +508,7 @@
                 username: document.getElementById('username').value,
                 full_name: document.getElementById('fullName').value,
                 role_id: roleIdValue,
-                is_admin: document.getElementById('isAdmin').checked,
+                // admin flag removed
                 is_active: document.getElementById('isActive').checked
             };
 
@@ -592,6 +613,8 @@
                 `;
 
                 document.getElementById('permissionsModal').classList.add('active');
+                document.body.classList.add('modal-open');
+                document.getElementById('permissionsModal').classList.add('active');
             } catch (error) {
                 console.error('Ошибка:', error);
                 alert('Не удалось загрузить права пользователя');
@@ -625,6 +648,9 @@
         // Закрыть модалку прав
         function closePermissionsModal() {
             document.getElementById('permissionsModal').classList.remove('active');
+            if (!document.getElementById('userModal').classList.contains('active')) {
+                document.body.classList.remove('modal-open');
+            }
         }
 
         // Обновление визуального состояния чекбокса

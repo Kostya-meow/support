@@ -231,6 +231,7 @@
     overflow: hidden auto;
     position: relative;
     min-height: 100vh;
+    display:flex; flex-direction:column; /* allow children to stretch to bottom */
   }
 
   .home-page {
@@ -242,13 +243,25 @@
   }
 
   .main-content.chat-page {
-    padding: 32px;
+    padding: 24px;
     overflow: hidden;
     display:flex;
     flex-direction:column;
     gap: 24px;
     align-items:stretch;
     height: 100vh;
+    background: var(--bg);
+  }
+
+  /* Make users page area behave like chat/request page: full viewport and stretch to bottom */
+  .main-content.users-page {
+    padding: 32px;
+    overflow: hidden;
+    display:flex;
+    flex-direction:column;
+    gap: 24px;
+    align-items:stretch;
+    height: 100vh; /* force full viewport so inner users-shell can stretch to bottom */
     background: var(--bg);
   }
   .main-content.chat-page > .placeholder,
@@ -319,7 +332,7 @@
     align-items:center;
     flex:1;
     width: 100%;
-    min-height: calc(100vh - 184px);
+  min-height: 0; /* let flex parent control available height to avoid overflow on zoom */
     background: var(--surface);
     border:1px solid var(--border);
     border-radius: var(--radius-xl);
@@ -337,6 +350,10 @@
     background: var(--btn-bg); color: var(--btn-fg);
     cursor:pointer; transition: transform .18s ease, background .18s ease, color .18s ease;
   }
+  /* Ensure primary action buttons appear above possible overlays so they remain clickable */
+  .create-user-btn { position: relative; z-index: 2001; pointer-events: auto; }
+  /* action icons should not overlay sticky header; keep them above normal content but below sticky header */
+  .action-buttons .icon-btn { position: relative; z-index: 5; }
   .btn .material-icons {
     font-size: 20px;
     line-height: 1;
@@ -614,7 +631,7 @@
     display:flex;
     flex-direction:column;
     gap: 24px;
-    min-height: calc(100vh - 184px);
+  min-height: 0; /* let flex parent control available height to avoid overflow on zoom */
   }
   .dashboard-header { display:grid; align-items:flex-start; }
   .dashboard-title { margin:0; font-size: var(--fs-2xl); }
@@ -705,7 +722,7 @@
     display:flex;
     flex-direction:column;
     gap: 32px;
-    min-height: calc(100vh - 184px);
+  min-height: 0;
   }
   .knowledge-page-header {
     display:flex;
@@ -872,7 +889,7 @@
 
   .users-page { display:flex; flex-direction:column; }
   .users-shell {
-    flex:1;
+    flex:1 1 auto; /* stretch to fill available space between header and footer */
     background: var(--surface);
     border:1px solid var(--border);
     border-radius: var(--radius-xl);
@@ -880,26 +897,46 @@
     display:flex;
     flex-direction:column;
     gap: 24px;
-    min-height: calc(100vh - 184px);
+  min-height: 0;
+    overflow: hidden; /* keep internal scrolling inside .users-table */
+    /* ensure children with flex:1 can shrink properly */
+    min-width: 0;
   }
-  .admin-container { width:100%; height:100%; padding: 0; display:flex; flex-direction:column; gap: 24px; }
+  .admin-container { width:100%; height:100%; padding: 0; display:flex; flex-direction:column; gap: 24px; flex:1 1 auto; min-width:0; }
   .admin-header { display:flex; flex-wrap:wrap; gap: 16px; align-items:flex-start; justify-content:space-between; }
-  .admin-heading { display:grid; gap: 6px; max-width: min(520px, 100%); }
+  .admin-heading { display:grid; max-width: min(520px, 100%); }
   .admin-title { margin:0; font-size: var(--fs-2xl); color: var(--text); }
   .admin-subtitle { margin:0; color: var(--text-muted); font-size: var(--fs-md); }
-  .users-table-wrapper { background: var(--surface); border:1px solid var(--border); border-radius: 18px; overflow:hidden; display:flex; flex-direction:column; height: min(520px, calc(100vh - 280px)); box-shadow: inset 0 -1px 0 rgba(15,23,42,.04); }
-  .users-table { flex:1; overflow:auto; overscroll-behavior: contain; }
-  .users-table table { width:100%; border-collapse:collapse; min-width: 960px; }
+  /* Table container fills available area and keeps consistent page paddings */
+  /* Make table wrapper flexible so it fills available area inside page paddings */
+  .users-table-wrapper { background: var(--surface); border:1px solid var(--border); border-radius: 18px; overflow:hidden; display:flex; flex-direction:column; flex: 1 1 auto; min-height:0; box-shadow: inset 0 -1px 0 rgba(15,23,42,.04); }
+  /* table scrolls inside its container; header stays sticky */
+  .users-table { flex:1 1 auto; overflow:auto; overscroll-behavior: contain; min-height:0; }
+  /* keep a consistent visual gap at the bottom so last row isn't flush against container */
+  .users-table { padding-bottom: 24px; }
+  /* spacer to guarantee there is room after the last TR when scrolled to bottom */
+  .users-table .table-bottom-spacer { display:block; height: 24px; width:100%; pointer-events: none; }
+  /* prevent table from forcing page width & let container handle scrolling */
+  .users-table table { width:100%; border-collapse:collapse; min-width: 0; table-layout: fixed; }
+  /* ensure cells don't expand and break layout; small max-width forces truncation so the table stays within its container */
+  .users-table td { max-width: 1px; }
+  .users-table td, .users-table th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Purple opaque header consistent with site brand */
   .users-table thead th {
-    background: #ede9ff;
-    color: var(--brand-strong);
+    background-color: var(--brand-strong); /* fully opaque brand color */
+    color: #fff;   /* white text for contrast */
     padding: 14px 16px;
     text-align:center;
     font-weight:600;
     position: sticky;
     top:0;
-    z-index:2;
+    z-index:9999; /* ensure header always overlays other content */
+    background-clip: padding-box; /* prevent rounded wrapper bleed */
+    border-bottom: 1px solid rgba(15,23,42,.06);
   }
+  /* ensure top corners of header match wrapper rounding */
+  .users-table thead th:first-child { border-top-left-radius: 12px; }
+  .users-table thead th:last-child  { border-top-right-radius: 12px; }
   .users-table td {
     padding: 14px 16px;
     border-bottom:1px solid var(--border);
@@ -960,13 +997,16 @@
   .status-icon.ok { color:#15803d; background: rgba(34,197,94,.14); }
   .status-icon.off { color:#64748b; background: rgba(148,163,184,.18); }
 
-  .modal { display:none; position: fixed; inset:0; z-index: 1000; background: rgba(13,16,35,.52); align-items:center; justify-content:center; backdrop-filter: blur(10px); padding: 24px; }
-  .modal.active { display:flex; }
+  .modal { display:none; position: fixed; inset:0; z-index: 1000; background: rgba(13,16,35,.52); align-items:center; justify-content:center; backdrop-filter: blur(10px); padding: 24px; pointer-events: none; }
+  /* only allow pointer events when modal is active */
+  .modal.active { display:flex; pointer-events: auto; }
+  .modal .modal-content { pointer-events: auto; }
   .modal-content { background: var(--surface); border:1px solid var(--border); border-radius: calc(var(--radius-xl) + 4px); width:min(760px, 94vw); overflow:hidden; display:flex; flex-direction:column; box-shadow: 0 28px 60px rgba(15,23,42,.14); }
   .modal-header { padding: 26px 32px 20px; background: var(--surface); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap: 24px; }
   .modal-title-group { display:flex; align-items:center; gap: 18px; }
-  .modal-header-icon { width: 52px; height: 52px; border-radius: 18px; background: rgba(109,91,255,.12); color: var(--brand-strong); display:grid; place-items:center; font-size: 28px; line-height:1; }
-  .modal-title-wrapper { display:grid; gap: 6px; }
+  .modal-header-icon { width: 52px; height: 52px; border-radius: 18px; background: rgba(109,91,255,.12); color: var(--brand-strong); display:flex; align-items:center; justify-content:center; font-size: 28px; line-height:1; align-self:center; }
+  .modal-header-icon .material-icons { display:block; font-size:28px; line-height:1; margin:0; transform:none; }
+  .modal-title-wrapper { display:grid;}
   .modal-title { margin:0; font-size: var(--fs-xl); font-weight:700; color: var(--text); }
   .modal-subtitle { margin:0; font-size: var(--fs-md); color: var(--text-muted); }
   .modal-close { width:42px; height:42px; border-radius: 14px; border:1px solid rgba(148,163,184,.24); background: rgba(148,163,184,.1); color: var(--text-muted); }
@@ -1033,7 +1073,8 @@
     box-shadow: 0 18px 40px -28px rgba(109,91,255,.5);
   }
   .role-option.active .role-option-marker { background: var(--brand); color:#fff; }
-  .role-option.admin .role-option-icon { background: rgba(253,224,71,.26); color:#854d0e; }
+  /* admin role should be red like in the table */
+  .role-option.admin .role-option-icon { background: rgba(244,63,94,.14); color:#d1433c; }
   .role-option.operator .role-option-icon { background: rgba(96,165,250,.24); color:#1d4ed8; }
   .role-option.analyst .role-option-icon { background: rgba(34,197,94,.2); color:#047857; }
   .role-option.trainee .role-option-icon { background: rgba(253,224,71,.26); color:#a16207; }
@@ -1078,20 +1119,21 @@
   .permissions-summary-value { color: var(--text-muted); }
   .permissions-grid {
     display:grid;
-    gap: 16px;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
   .permission-card {
     position:relative;
     display:flex;
     align-items:flex-start;
-    gap:16px;
-    padding: 18px 22px;
-    border-radius: 20px;
-    border:1px solid rgba(109,91,255,.16);
-    background: rgba(109,91,255,.08);
+    gap:12px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border:1px solid rgba(109,91,255,.08);
+    background: rgba(109,91,255,.03);
     cursor:pointer;
-    transition: border .18s ease, background .18s ease, box-shadow .18s ease;
+    transition: transform .12s ease, border .12s ease, box-shadow .12s ease;
+    min-height: 86px;
   }
   .permission-card input {
     position:absolute;
@@ -1102,36 +1144,30 @@
     cursor:pointer;
   }
   .permission-icon {
-    width:46px;
-    height:46px;
-    border-radius: 16px;
-    background: rgba(109,91,255,.18);
-    color: var(--brand-strong);
-    display:grid;
-    place-items:center;
-    font-size: 24px;
-    flex-shrink:0;
+    display:none !important; /* hide icons completely as requested */
   }
   .permission-text { display:grid; gap:6px; pointer-events:none; }
   .permission-title { font-weight:600; color: var(--text); }
   .permission-description { font-size: var(--fs-sm); color: var(--text-muted); line-height:1.45; }
   .permission-marker {
     margin-left:auto;
-    width:32px;
-    height:32px;
-    border-radius: 18px;
-    background: rgba(255,255,255,.7);
+    width:28px;
+    height:28px;
+    border-radius: 8px;
+    background: rgba(255,255,255,.92);
     color: var(--text-muted);
     display:grid;
     place-items:center;
     pointer-events:none;
-    transition: background .18s ease, color .18s ease;
+    transition: background .12s ease, color .12s ease, transform .12s ease;
+    border: 1px solid rgba(15,23,42,.04);
   }
-  .permission-marker .material-icons { font-size: 18px; }
-  .permission-card:hover { border-color: rgba(109,91,255,.32); background: rgba(109,91,255,.12); box-shadow: 0 14px 36px -26px rgba(109,91,255,.45); }
-  .permission-card.checked { border-color: rgba(109,91,255,.46); background: rgba(109,91,255,.18); box-shadow: 0 18px 40px -28px rgba(109,91,255,.5); }
-  .permission-card.checked .permission-marker { background: var(--brand); color:#fff; }
-  .permission-card.checked .permission-title { color: var(--brand-strong); }
+  .permission-marker .material-icons { font-size: 16px; }
+  .permission-card:hover { border-color: rgba(109,91,255,.18); background: rgba(109,91,255,.04); }
+  .permission-card.checked { border-color: rgba(109,91,255,.24); background: rgba(109,91,255,.06); box-shadow: none; }
+  /* only marker highlights when checked; icons removed per request */
+  .permission-card.checked .permission-marker { background: var(--brand); color:#fff; transform: translateY(-1px); }
+  .permission-card.checked .permission-title { color: var(--text); }
   .permission-card.permission-admin .permission-icon,
   .permission-card.permission-permissions .permission-icon,
   .permission-card.permission-users .permission-icon,
@@ -1238,6 +1274,150 @@
   @media (min-width: 1180px) {
     .character-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
+
+  /* ---------------- Custom tweaks for admin user modal ---------------- */
+  /* Scope changes only to the user creation/edit modal to avoid global regressions */
+  #userModal .modal-content {
+    /* make the create/edit modal wider so role tiles don't wrap unnecessarily (allow 4 tiles per row)
+       Note: capped to viewport using 96vw to remain usable on smaller screens */
+    width: min(1180px, 96vw);
+  }
+
+  #userModal .modal-body {
+    padding: 28px 36px;
+  }
+
+  #userModal .role-selector {
+    /* prefer a 3-column layout on wide screens but allow wrapping */
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 18px;
+  }
+
+  #userModal .role-option {
+    padding: 20px 22px;
+    min-height: 72px;
+    gap: 16px;
+  }
+
+  #userModal .role-option .role-option-title {
+    font-size: 15px;
+  }
+
+  /* Make sure focus and active states are clearly visible for keyboard users */
+  #userModal .role-option:focus-visible {
+    outline: 3px solid rgba(109,91,255,.18);
+    outline-offset: 3px;
+  }
+
+  /* Compact the bottom admin/active checkboxes into inline labels (two per row) */
+  #userModal .checkbox-row {
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+
+  #userModal .checkbox-card {
+    /* make them look like compact inline controls */
+    flex: 0 1 calc(50% - 6px);
+    padding: 8px 12px;
+    align-items:center;
+    gap: 10px;
+    border-radius: 12px;
+    background: transparent;
+    border: none;
+  }
+
+  #userModal .checkbox-card-visual { pointer-events:none; }
+  #userModal .checkbox-icon { width:34px; height:34px; border-radius:8px; font-size:18px; }
+  #userModal .checkbox-label { display:flex; align-items:center; gap:10px; }
+  #userModal .checkbox-title { font-weight:600; font-size:14px; }
+  #userModal .checkbox-note { display:none; }
+
+  #userModal .checkbox-marker { width:28px; height:28px; border-radius:8px; }
+
+  /* Hide the left icon for the bottom admin/active controls in the user modal (per request) */
+  #userModal .checkbox-card.admin .checkbox-icon,
+  #userModal .checkbox-card.active .checkbox-icon {
+    display: none;
+  }
+
+  /* Center/align material icons inside their square backgrounds to avoid optical offset */
+  .role-option-icon .material-icons,
+  .checkbox-icon .material-icons,
+  #userModal .role-option-icon .material-icons {
+    display: block;
+    line-height: 1;
+    transform: translateY(1px);
+  }
+
+  /* ensure the modal adapts on smaller screens */
+  @media (max-width: 800px) {
+    #userModal .modal-content { width: min(760px, 96vw); }
+    #userModal .checkbox-card { flex: 1 1 100%; }
+    #userModal .role-selector { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  }
+
+/* At larger viewports allow exactly 4 columns for role tiles so they don't wrap */
+@media (min-width: 1180px) {
+  #userModal .role-selector { grid-template-columns: repeat(4, minmax(220px, 1fr)); }
+}
+
+/* Header toggle (site-style) for Active state inside user modal */
+#userModal .modal-header-controls { display:flex; align-items:center; gap:12px; }
+#userModal .toggle-btn {
+  --track-w: 48px;
+  --track-h: 28px;
+  --thumb-size: 20px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  display:inline-flex;
+  align-items:center;
+  cursor:pointer;
+}
+#userModal .toggle-track {
+  width: var(--track-w);
+  height: var(--track-h);
+  background: rgba(148,163,184,.14);
+  border-radius: 999px;
+  display:inline-block;
+  position:relative;
+  transition: background .18s ease, box-shadow .18s ease;
+}
+#userModal .toggle-thumb {
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  background: #fff;
+  border-radius: 50%;
+  position:absolute;
+  left: 4px;
+  top: 50%; transform: translateY(-50%);
+  box-shadow: 0 6px 16px rgba(15,23,42,.12);
+  transition: transform .18s ease, left .18s ease, background .18s ease;
+}
+#userModal .toggle-btn.on .toggle-track { background: rgba(109, 91, 255, .12); }
+#userModal .toggle-btn.on .toggle-thumb { left: calc(var(--track-w) - var(--thumb-size) - 4px); background: var(--brand); }
+
+/* Align toggle label */
+#userModal .modal-header-controls { display:flex; align-items:center; gap:12px; }
+#userModal .modal-header-controls .toggle-label { font-weight:600; color: var(--text); margin-right:6px; }
+
+/* Dim underlying page elements while any modal is open */
+body.modal-open .users-table,
+body.modal-open .action-buttons,
+body.modal-open .main-nav,
+body.modal-open .sidebar,
+body.modal-open .users-shell {
+  opacity: 0.28;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Ensure modals remain interactive above dimming layer */
+body.modal-open .modal { pointer-events: auto; }
+
+  
   .character-card {
     background: var(--surface-alt);
     border:1px solid var(--border);
@@ -1461,7 +1641,7 @@
     .faq-search-box { flex-direction:column; align-items:stretch; border-radius: 24px; padding: 18px 20px; }
     .faq-grid { grid-template-columns: 1fr; }
     .results-wrapper { padding: 20px; }
-    .users-table-wrapper { height:auto; max-height: 420px; }
+  .users-table-wrapper { flex: 1 1 auto; min-height: 320px; max-height: 60vh; }
   }
 
   @media (max-width: 480px) {
@@ -1513,7 +1693,7 @@
     .file-upload-zone { padding: 20px; }
     .login-card { padding: 24px; border-radius: 22px; }
     .admin-header { flex-direction: column; align-items: flex-start; }
-    .users-table table { min-width: 720px; }
+  /* allow users table to shrink on small screens; internal scrolling will handle overflow */
     .character-grid { grid-template-columns: 1fr; }
   }
 
