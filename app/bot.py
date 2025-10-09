@@ -327,8 +327,55 @@ def create_dispatcher(
             
             await message.answer(combined_text, reply_markup=confirm_keyboard, parse_mode='HTML')
         else:
-            # Уверенный ответ - кнопку не показываем
-            await message.answer(formatted_answer, parse_mode='HTML')
+            # Уверенный ответ - показываем ответ и (опционально) темы-быстрые кнопки
+            try:
+                await message.answer(formatted_answer, parse_mode='HTML')
+            except Exception:
+                logger.exception("Failed to send confident answer to chat %s", message.chat.id)
+
+            # Suggest topics (short quick-follow buttons)
+            try:
+                topics = await asyncio.to_thread(rag_service.suggest_topics, conversation_id, user_text, answer_text)
+                if topics:
+                    buttons = []
+                    for t in topics:
+                        cb = f"topic::{t}"
+                        # If callback_data might be long, we could map to a short id — for now keep it simple
+                        buttons.append([InlineKeyboardButton(text=t, callback_data=cb)])
+                    topic_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+                    await message.answer("Хотите узнать подробнее по этим темам:", reply_markup=topic_kb)
+            except Exception:
+                logger.exception("Failed to generate or send topic suggestions for chat %s", message.chat.id)
+
+    @router.callback_query(F.data.startswith('topic::'))
+    async def on_topic_callback(query: CallbackQuery) -> None:
+        # quick handler: emulate user asking the topic question
+        data = (query.data or '')
+        topic = data.split('::', 1)[1] if '::' in data else data
+        try:
+            await query.answer()  # remove loading
+        except Exception:
+            pass
+        # Send typing and call RAG as if user asked topic
+        try:
+            chat_id = query.message.chat.id if query.message else query.from_user.id
+            try:
+                await query.bot.send_chat_action(chat_id, 'typing')
+            except Exception:
+                pass
+            # Generate reply synchronously in thread
+            rag_result: RAGResult = await asyncio.to_thread(rag_service.generate_reply, chat_id, topic)
+            # Send back to chat
+            text = rag_result.final_answer or 'Нет ответа.'
+            try:
+                if query.message:
+                    await query.message.answer(text)
+                else:
+                    await query.bot.send_message(query.from_user.id, text)
+            except Exception:
+                logger.exception('Failed to send topic reply')
+        except Exception:
+            logger.exception('Error handling topic callback')
 
     async def _send_bot_message(ticket_id: int, text: str, is_system: bool = False) -> None:
         # Проверяем, есть ли активные подключения к этому чату

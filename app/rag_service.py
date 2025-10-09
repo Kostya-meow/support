@@ -219,6 +219,14 @@ class RAGService:
         self.evaluation_failure_message = rag_cfg.get("evaluation_failure_message", [])
         self.removal_list = set(rag_cfg.get("removal_list", []))
 
+        # Topics / related quick-questions (UI buttons)
+        self.topics_count = int(rag_cfg.get("topics_count", 3))
+        self.topics_max_len = int(rag_cfg.get("topics_max_len", 30))
+        self.topics_system_prompt = rag_cfg.get("topics_system_prompt", "Ты — генератор кратких тем и вопросов для кнопок. На входе — исходный вопрос и ответ ассистента. Верни {count} коротких тезисных тем (не больше {max_len} символов каждая), по одной на строку.")
+        self.topics_user_template = rag_cfg.get("topics_user_template", "Вопрос: {question}\nОтвет: {answer}\nСформируй {count} коротких вариантов тем (не больше {max_len} символов) — по одной теме на строку. Только сами короткие заголовки.")
+        # Temporary storage for topic references when callback_data would be too long
+        self._topic_refs: dict[str, str] = {}
+
         self.histories: dict[int, list[dict[str, str]]] = defaultdict(list)
         # Хранение временной истории чатов (до создания заявки)
         self.chat_histories: dict[int, list[ChatMessage]] = defaultdict(list)
@@ -277,7 +285,6 @@ class RAGService:
             return
         
         self._documents = documents
-        
         # Если нет векторов (все embedding'и NULL), создаем только BM25 индекс
         if not vectors:
             self._faiss_matrix = None
@@ -604,6 +611,39 @@ class RAGService:
         
         return RAGResult(final_answer, False, filter_info, eval_score)
     
+    def suggest_topics(self, conversation_id: int, user_query: str, answer_text: str) -> list[str]:
+        """Return a list of short topic strings (labels) to show as quick buttons.
+        This calls the LLM synchronously (wrap in thread when calling async code).
+        """
+        try:
+            user_prompt = self.topics_user_template.format(question=user_query, answer=answer_text or "", count=self.topics_count, max_len=self.topics_max_len)
+            messages = [
+                {"role": "system", "content": self.topics_system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            raw = self._call_llm(messages, temperature=0.2, max_tokens=128)
+            # Parse lines; tolerate several formats
+            lines = [l.strip() for l in re.split(r"\r?\n|\t|-\s*", raw) if l.strip()]
+            topics: list[str] = []
+            for ln in lines:
+                # remove leading numbering like '1.' or '1)'
+                ln = re.sub(r'^[0-9]+[\.)\-]*\s*', '', ln).strip()
+                if not ln:
+                    continue
+                # Truncate to max length
+                if len(ln) > self.topics_max_len:
+                    ln = ln[: self.topics_max_len].rsplit(' ', 1)[0]
+                topics.append(ln)
+                if len(topics) >= self.topics_count:
+                    break
+            # Fallback: if nothing parsed, produce simple splits of answer
+            if not topics:
+                fallback = re.findall(r"[A-Za-zА-Яа-я0-9\s]{3,}", answer_text or user_query)[: self.topics_count]
+                topics = [t.strip()[: self.topics_max_len] for t in fallback]
+            return topics
+        except Exception:
+            logger.exception("Failed to suggest topics")
+            return []
     async def generate_ticket_summary(self, messages: list, ticket_id: int = None) -> str:
         """
         Генерирует краткое саммари тикета в 1-2 предложения для операторов
