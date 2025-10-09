@@ -121,7 +121,8 @@ async def update_popularity_scores():
                         continue
                     
                     # Получаем текст всех пользовательских сообщений
-                    user_queries = [msg.content for msg in recent_messages if msg.content]
+                    # Модель Message использует поле `text`, не `content`
+                    user_queries = [msg.text for msg in recent_messages if getattr(msg, 'text', None)]
                     if not user_queries:
                         logger.info("Нет текстовых сообщений от пользователей")
                         continue
