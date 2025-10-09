@@ -56,7 +56,18 @@ def create_dispatcher(
 
     async def _serialize_tickets(session: AsyncSession) -> list[dict]:
         tickets = await crud.list_tickets(session, archived=False)
-        return [TicketRead.from_orm(item).model_dump(mode="json") for item in tickets]
+        result = []
+        for ticket in tickets:
+            ticket_data = TicketRead.from_orm(ticket).model_dump(mode="json")
+            # Подсчитываем непрочитанные сообщения от user и bot
+            unread_count = sum(
+                1 for msg in ticket.messages 
+                if msg.sender in ['user', 'bot'] and not msg.is_read
+            )
+            # Ограничиваем максимум 99
+            ticket_data['unread_count'] = min(unread_count, 99)
+            result.append(ticket_data)
+        return result
 
     async def _broadcast_tickets() -> None:
         async with session_maker() as session:
@@ -76,6 +87,11 @@ def create_dispatcher(
                 # Нет открытой заявки - это обычное общение с ботом
                 return None, False
             
+            # Проверяем, есть ли активные подключения к этому чату
+            # Если есть - сразу помечаем сообщение как прочитанное
+            should_mark_as_read = connection_manager.has_active_chat_connections(ticket.id)
+            logger.info(f"📨 Message from {sender} to ticket #{ticket.id}: has_active={should_mark_as_read}")
+            
             # Есть открытая заявка - добавляем сообщение
             db_message = await crud.add_message(
                 session,
@@ -83,10 +99,18 @@ def create_dispatcher(
                 sender=sender,
                 text=text,
                 telegram_message_id=message.message_id if sender == USER_SENDER else None,
+                is_read=should_mark_as_read,  # Сразу помечаем как прочитанное, если чат открыт
             )
+            logger.info(f"✅ Message #{db_message.id} created with is_read={db_message.is_read}")
+            
+            # add_message уже делает commit, просто загружаем актуальные данные
+            await session.refresh(db_message)  # Обновляем объект
+            # Загружаем заявку с сообщениями для правильного подсчета unread
+            await session.refresh(ticket, ['messages'])
+            tickets_payload = await _serialize_tickets(session)
             
         await _broadcast_message(ticket.id, MessageRead.from_orm(db_message))
-        await _broadcast_tickets()
+        await connection_manager.broadcast_conversations(tickets_payload)
         return ticket.id, True
 
     async def _create_ticket_and_add_message(message: Message, text: str) -> int:
@@ -96,6 +120,9 @@ def create_dispatcher(
         async with session_maker() as session:
             # Создаем новую заявку
             ticket = await crud.create_ticket(session, chat_id, title)
+            
+            # Проверяем, есть ли активные подключения к этому чату (маловероятно для новой заявки, но проверим)
+            should_mark_as_read = connection_manager.has_active_chat_connections(ticket.id)
             
             # Пытаемся получить и добавить историю чата из RAG сервиса
             try:
@@ -122,7 +149,8 @@ def create_dispatcher(
                             ticket_id=ticket.id,
                             sender=sender,
                             text=chat_msg.message,
-                            is_system=False
+                            is_system=False,
+                            is_read=should_mark_as_read
                         )
                         print(f"BOT DEBUG: Added history message {i+1}/{len(chat_history)}: {sender} - {chat_msg.message[:30]}...")
                         logger.debug(f"Added history message {i+1}/{len(chat_history)}: {sender}")
@@ -152,9 +180,10 @@ def create_dispatcher(
                         session,
                         ticket_id=ticket.id,
                         sender=USER_SENDER,
-                    text=text,
-                    telegram_message_id=message.message_id,
-                )
+                        text=text,
+                        telegram_message_id=message.message_id,
+                        is_read=should_mark_as_read
+                    )
                     
             except Exception as e:
                 # Если что-то пошло не так с историей, просто добавляем текущее сообщение
@@ -165,6 +194,7 @@ def create_dispatcher(
                     sender=USER_SENDER,
                     text=text,
                     telegram_message_id=message.message_id,
+                    is_read=should_mark_as_read
                 )
             
             # Генерируем summary сразу после создания заявки
@@ -301,8 +331,16 @@ def create_dispatcher(
             await message.answer(formatted_answer, parse_mode='HTML')
 
     async def _send_bot_message(ticket_id: int, text: str, is_system: bool = False) -> None:
+        # Проверяем, есть ли активные подключения к этому чату
+        should_mark_as_read = connection_manager.has_active_chat_connections(ticket_id)
         async with session_maker() as session:
-            db_message = await crud.add_message(session, ticket_id, BOT_SENDER, text, is_system=is_system)
+            db_message = await crud.add_message(
+                session, ticket_id, BOT_SENDER, text, 
+                is_system=is_system, 
+                is_read=should_mark_as_read
+            )
+            # add_message уже делает commit, просто обновляем объект
+            await session.refresh(db_message)
             tickets_payload = await _serialize_tickets(session)
         await _broadcast_message(ticket_id, MessageRead.from_orm(db_message))
         await connection_manager.broadcast_conversations(tickets_payload)
@@ -468,6 +506,9 @@ def create_dispatcher(
                 title = _extract_title(user_obj=callback_query.from_user) if callback_query.from_user else f"Заявка от {chat.id}"
                 ticket = await crud.create_ticket(session, chat.id, title)
                 
+                # Проверяем, есть ли активные подключения
+                should_mark_as_read = connection_manager.has_active_chat_connections(ticket.id)
+                
                 # Добавляем всю историю чата в заявку
                 for i, chat_msg in enumerate(chat_history):
                     try:
@@ -477,7 +518,8 @@ def create_dispatcher(
                             ticket_id=ticket.id,
                             sender=sender,
                             text=chat_msg.message,
-                            is_system=False
+                            is_system=False,
+                            is_read=should_mark_as_read
                         )
                         print(f"BOT DEBUG: Added history message {i+1}: [{sender}] {chat_msg.message[:30]}...")
                     except Exception as e:

@@ -19,6 +19,7 @@ class TicketRead(BaseModel):
     first_response_at: Optional[datetime]
     closed_at: Optional[datetime]
     updated_at: datetime
+    unread_count: int = 0  # Количество непрочитанных сообщений
 
     model_config = ConfigDict(from_attributes=True)
     

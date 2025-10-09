@@ -8,19 +8,20 @@
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/navigation.js"></script>
     <script src="/static/menu_loader.js"></script>
+    <script src="/static/notification.js"></script>
 </head>
 <body>
     <div class="layout">
-        <!-- Сайдбар с навигацией -->
+        <!-- Top Navigation Bar -->
         <aside class="sidebar">
-            <div class="sidebar-content">
-                <div class="sidebar-header">
+            <div class="sidebar-header">
+                <a href="/" style="text-decoration: none; color: inherit;">
                     <h1>Support Desk</h1>
-                </div>
-                
-                <!-- Главная навигация -->
+                </a>
+            </div>
+            
+            <div class="sidebar-content">
                 <div class="sidebar-section">
-                    <div class="sidebar-section-title">Навигация</div>
                     <div class="main-nav" id="mainNav">
                         <!-- Меню загружается динамически -->
                     </div>
@@ -170,6 +171,7 @@
         let currentSession = null;
         let currentQuestion = null;
         let currentCharacterEmoji = '🙂';
+        let currentCharacterName = 'Студент';
 
         // DOM Elements
         const characterSelection = document.getElementById('characterSelection');
@@ -275,8 +277,9 @@
                 const charsData = await charsResponse.json();
                 const selectedChar = charsData.characters[character];
                 
-                // Save character emoji for messages
+                // Save character info for messages
                 currentCharacterEmoji = selectedChar.emoji;
+                currentCharacterName = selectedChar.name;
                 
                 // Switch to game screen immediately with selected character
                 hideElement(characterSelection);
@@ -327,24 +330,36 @@
             let messageClass = 'chat-message-user';
             let avatarHtml = `<div class="message-avatar">${emoji}</div>`;
 
-            if (role === 'mentor') {
-                messageClass = 'chat-message-mentor';
-                avatarHtml = `<div class="message-avatar"><span class="material-icons">school</span></div>`;
+            if (role === 'system') {
+                messageClass = 'chat-message-system';
+                avatarHtml = `<div class="message-avatar"><span class="material-icons">stars</span></div>`;
             } else if (role === 'operator') {
                 messageClass = 'chat-message-operator';
                 avatarHtml = `<div class="message-avatar"><span class="material-icons">support_agent</span></div>`;
             }
 
-            typingDiv.className = `chat-message ${messageClass} typing-indicator`;
+            typingDiv.className = `typing-indicator ${messageClass}`;
             typingDiv.id = 'typingIndicator';
             
-            typingDiv.innerHTML = `
-                ${avatarHtml}
-                <div class="message-content typing-dots">
-                    <span></span><span></span><span></span>
+            const contentHtml = `
+                <div class="message-content">
+                    <div class="typing-bubble">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
                 </div>
             `;
+            
+            // Для operator и mentor аватар справа
+            if (role === 'operator' || role === 'mentor') {
+                typingDiv.innerHTML = contentHtml + avatarHtml;
+            } else {
+                typingDiv.innerHTML = avatarHtml + contentHtml;
+            }
+            
             chatMessages.appendChild(typingDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
         
         // Remove typing indicator
@@ -382,24 +397,55 @@
             `;
         }
 
-        // Add message to chat
+        // Add message to chat with Telegram-style grouping
+        let lastSender = null;
+        let lastTimestamp = null;
+
         function addMessage(sender, text, isSystem = false) {
+            const now = Date.now();
+            const timeDiff = lastTimestamp ? (now - lastTimestamp) / 1000 : Infinity;
+            const isSameSender = lastSender === sender;
+            const isGrouped = isSameSender && timeDiff < 60;
+            
             const messageDiv = document.createElement('div');
             messageDiv.className = `chat-message chat-message-${sender}`;
             if (isSystem) messageDiv.classList.add('chat-message-system');
+            
+            // Добавляем классы для группировки
+            if (isGrouped) {
+                messageDiv.classList.add('grouped');
+                // Убираем show-avatar у предыдущего сообщения
+                const previousMessage = chatMessages.lastElementChild;
+                if (previousMessage && previousMessage.classList.contains('chat-message')) {
+                    previousMessage.classList.remove('show-avatar', 'last-in-group');
+                    previousMessage.classList.add('grouped');
+                }
+            }
+            messageDiv.classList.add('last-in-group', 'show-avatar');
 
             const avatar = document.createElement('div');
             avatar.className = 'message-avatar';
             if (sender === 'user') {
                 avatar.textContent = currentCharacterEmoji;
-            } else if (sender === 'system') {
-                avatar.innerHTML = '<span class="material-icons">school</span>';
-            } else {
+            } else if (sender === 'operator') {
                 avatar.innerHTML = '<span class="material-icons">support_agent</span>';
+            } else if (sender === 'system') {
+                avatar.innerHTML = '<span class="material-icons">stars</span>';
             }
 
             const content = document.createElement('div');
             content.className = 'message-content';
+            
+            // Имя отправителя
+            const senderName = document.createElement('div');
+            senderName.className = 'message-sender-name';
+            if (sender === 'user') {
+                senderName.textContent = currentCharacterEmoji + ' ' + (currentCharacterName || 'Студент');
+            } else if (sender === 'operator') {
+                senderName.textContent = 'Вы'; // Это ответ оператора (ученика)
+            } else if (sender === 'system') {
+                senderName.textContent = 'Система';
+            }
 
             const textBlock = document.createElement('div');
             textBlock.className = 'message-text';
@@ -408,13 +454,31 @@
             } else {
                 textBlock.textContent = text;
             }
+            
+            const meta = document.createElement('div');
+            meta.className = 'message-meta';
+            meta.textContent = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
+            content.appendChild(senderName);
             content.appendChild(textBlock);
-            messageDiv.appendChild(avatar);
-            messageDiv.appendChild(content);
+            content.appendChild(meta);
+            
+            // Только operator справа (аватар добавляем первым, CSS row-reverse перевернет)
+            // System, mentor, user - слева (обычный порядок)
+            if (sender === 'operator') {
+                messageDiv.appendChild(avatar);  // Avatar first for row-reverse
+                messageDiv.appendChild(content);
+            } else {
+                // Для user, mentor, system - обычный порядок (слева)
+                messageDiv.appendChild(avatar);
+                messageDiv.appendChild(content);
+            }
 
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            lastSender = sender;
+            lastTimestamp = now;
         }
 
         // Submit answer
@@ -437,8 +501,8 @@
             addMessage('operator', answer);
             lockReply({showSpinner: true, clear: true});
             
-            // Show typing indicator for evaluation (operator is analyzing)
-            addTypingIndicator('mentor');
+            // Show typing indicator for evaluation (system is analyzing)
+            addTypingIndicator('system');
             
             try {
                 const response = await fetch('/api/simulator/respond', {
@@ -639,5 +703,8 @@
         });
     </script>
     </div> <!-- .layout -->
+    <footer class="site-footer">
+        <p>© 2025 Центр искусственного интеллекта СФУ</p>
+    </footer>
 </body>
 </html>

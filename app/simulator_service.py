@@ -118,15 +118,30 @@ class SimulatorService:
         1. Получаем случайный документ из БЗ
         2. Используем LLM для генерации вопроса в стиле персонажа
         """
+        # Fallback вопросы на случай ошибок
+        fallback_questions = {
+            "easy": [
+                "Привет! Я забыл пароль от компьютера, что делать?",
+                "Помогите, у меня не работает интернет!",
+                "Как мне установить программу 1С?",
+            ],
+            "medium": [
+                "Не могу подключиться к корпоративному VPN. Ошибка подключения.",
+                "У меня не открывается файл Excel, пишет ошибку совместимости.",
+                "Нужно настроить почту на новом компьютере. Какие параметры?",
+            ],
+            "hard": [
+                "Мне СРОЧНО нужен доступ к системе 1С. Когда будет готово?",
+                "Почему мой отдел до сих пор не получил обновление ПО? Это недопустимо!",
+                "Требую немедленно восстановить доступ к базе данных. У нас простой!",
+            ]
+        }
+        
         # Получаем документы из БЗ
         try:
             # Запрашиваем случайную тему
             topics = ["пароль", "VPN", "принтер", "доступ", "программа", "оборудование", "интернет"]
             topic = random.choice(topics)
-            
-            # Используем RAG для получения контекста
-            # Создаем временный ID для симуляции
-            temp_conversation_id = f"simulator_{id(session)}"
             
             # Генерируем вопрос через LLM
             character_info = self.CHARACTERS[session.character]
@@ -144,6 +159,10 @@ class SimulatorService:
             # Используем LLM напрямую через RAG сервис
             question_text = self._generate_with_llm(prompt)
             
+            # Проверяем что получили нормальный вопрос
+            if not question_text or len(question_text) < 10 or "ошибка" in question_text.lower():
+                raise ValueError("Invalid question generated")
+            
             # Получаем контекст из БЗ по этому вопросу
             context = self._get_knowledge_context(question_text)
             
@@ -157,15 +176,14 @@ class SimulatorService:
             return question
             
         except Exception as e:
+            logger.error(f"Failed to generate question via LLM: {e}", exc_info=True)
             # Fallback на предопределенные вопросы
-            fallback_questions = {
-                "easy": "Привет! Я забыл пароль от компьютера, что делать?",
-                "medium": "Не могу подключиться к корпоративному VPN. Ошибка подключения.",
-                "hard": "Мне СРОЧНО нужен доступ к системе 1С. Когда будет готово?"
-            }
+            questions_list = fallback_questions.get(session.character, fallback_questions["medium"])
+            question_text = random.choice(questions_list)
+            
             question = SimulatorQuestion(
-                question=fallback_questions.get(session.character, fallback_questions["medium"]),
-                context="Контекст недоступен",
+                question=question_text,
+                context="Контекст недоступен - используйте свои знания для ответа",
                 difficulty=session.character
             )
             session.current_question_data = question

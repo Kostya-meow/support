@@ -8,16 +8,18 @@
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/navigation.js"></script>
     <script src="/static/menu_loader.js"></script>
+    <script src="/static/notification.js"></script>
 </head>
 <body>
     <div class="layout">
         <aside class="sidebar">
-            <div class="sidebar-content">
-                <div class="sidebar-header">
+            <div class="sidebar-header">
+                <a href="/" style="text-decoration: none; color: inherit;">
                     <h1>Support Desk</h1>
-                </div>
+                </a>
+            </div>
+            <div class="sidebar-content">
                 <div class="sidebar-section">
-                    <div class="sidebar-section-title">Навигация</div>
                     <div class="main-nav" id="mainNav">
                         <!-- Меню загружается динамически -->
                     </div>
@@ -188,5 +190,8 @@
             refreshStats();
         });
     </script>
+    <footer class="site-footer">
+        <p>© 2025 Центр искусственного интеллекта СФУ</p>
+    </footer>
 </body>
 </html>

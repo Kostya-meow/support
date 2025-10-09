@@ -5,6 +5,7 @@ from typing import Iterable, Optional
 
 from sqlalchemy import delete, select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app import models
 
@@ -59,7 +60,7 @@ async def list_tickets(
     archived: bool = False,
 ) -> list[models.Ticket]:
     """Получить список заявок."""
-    stmt = select(models.Ticket).order_by(models.Ticket.updated_at.desc())
+    stmt = select(models.Ticket).options(selectinload(models.Ticket.messages)).order_by(models.Ticket.updated_at.desc())
     
     if status:
         stmt = stmt.where(models.Ticket.status == status)
@@ -176,6 +177,7 @@ async def add_message(
     telegram_message_id: Optional[int] = None,
     is_system: bool = False,
     created_at: Optional[datetime] = None,
+    is_read: bool = False,
 ) -> models.Message:
     """Добавить сообщение в заявку."""
     message = models.Message(
@@ -184,6 +186,7 @@ async def add_message(
         text=text,
         telegram_message_id=telegram_message_id,
         is_system=is_system,
+        is_read=is_read,
     )
     if created_at:
         message.created_at = created_at
@@ -214,6 +217,30 @@ async def list_messages_for_ticket(
     stmt = stmt.order_by(models.Message.created_at)
     result = await session.execute(stmt)
     return result.scalars().all()
+
+
+async def mark_ticket_messages_as_read(
+    session: AsyncSession,
+    ticket_id: int,
+) -> int:
+    """Отметить все сообщения от user/bot в заявке как прочитанные."""
+    from sqlalchemy import update
+    
+    stmt = (
+        update(models.Message)
+        .where(
+            and_(
+                models.Message.ticket_id == ticket_id,
+                models.Message.sender.in_(['user', 'bot']),
+                models.Message.is_read == False
+            )
+        )
+        .values(is_read=True)
+    )
+    
+    result = await session.execute(stmt)
+    await session.commit()
+    return result.rowcount
 
 
 # ========== KNOWLEDGE ==========

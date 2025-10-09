@@ -8,18 +8,20 @@
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/navigation.js"></script>
     <script src="/static/menu_loader.js"></script>
+    <script src="/static/notification.js"></script>
 </head>
 <body>
     <div class="layout">
-        <!-- Сайдбар -->
+        <!-- Top Navigation Bar -->
         <aside class="sidebar">
-            <div class="sidebar-content">
-                <div class="sidebar-header">
+            <div class="sidebar-header">
+                <a href="/" style="text-decoration: none; color: inherit;">
                     <h1>Support Desk</h1>
-                </div>
-                
+                </a>
+            </div>
+            
+            <div class="sidebar-content">
                 <div class="sidebar-section">
-                    <div class="sidebar-section-title">Навигация</div>
                     <div class="main-nav" id="mainNav">
                         <!-- Меню загружается динамически -->
                     </div>
@@ -42,8 +44,8 @@
                 <div class="admin-container">
                 <div class="admin-header">
                     <div class="admin-heading">
-                        <h2 class="admin-title">Управление пользователями</h2>
-                        <p class="admin-subtitle">Создавайте аккаунты, назначайте роли и контролируйте активность команды</p>
+                        <h1 class="admin-title">Управление пользователями</h1>
+                        <p class="admin-subtitle">Создавайте аккаунты, управляйте ролями и правами пользователей</p>
                     </div>
                     <button type="button" class="btn btn-soft-primary create-user-btn" onclick="openCreateModal()">
                         <span class="material-icons" aria-hidden="true">person_add</span>
@@ -95,10 +97,6 @@
                         <span class="toggle-track">
                             <span class="toggle-thumb"></span>
                         </span>
-                    </button>
-                    <button type="button" class="icon-btn modal-close" onclick="closeModal()" aria-label="Закрыть модальное окно">
-                        <span class="material-icons" aria-hidden="true">close</span>
-                    </button>
                 </div>
             </div>
             <div class="modal-body">
@@ -155,9 +153,6 @@
                         <p class="modal-subtitle" id="permissionsSubtitle">Настройте доступ к разделам платформы</p>
                     </div>
                 </div>
-                <button type="button" class="icon-btn modal-close" onclick="closePermissionsModal()" aria-label="Закрыть модальное окно">
-                    <span class="material-icons" aria-hidden="true">close</span>
-                </button>
             </div>
             <div class="modal-body">
                 <div id="permissionsContent">
@@ -173,6 +168,17 @@
 
     <script>
     const normalizeKey = (value) => (value || '').toString().trim().toLowerCase().replace(/[^a-z0-9а-яё]+/gi, '-');
+    
+    // Маппинг для русских названий ролей
+    const roleNameRussianMap = {
+        'admin': 'Админ',
+        'administrator': 'Админ',
+        'analyst': 'Аналитик',
+        'operator': 'Оператор',
+        'trainee': 'Стажер',
+        'support': 'Оператор'
+    };
+    
     const roleIconMap = {
         admin: 'admin_panel_settings',
         administrator: 'admin_panel_settings',
@@ -324,19 +330,23 @@
                 const normalizedRole = normalizeKey(role.name);
                 const iconName = roleIconMap[normalizedRole] || 'badge';
                 const badgeKey = roleBadgeClassMap[normalizedRole] || '';
+                
+                // Получаем русское название роли
+                const displayName = roleNameRussianMap[normalizedRole] || role.name;
+                
                 const option = document.createElement('button');
                 option.type = 'button';
                 option.className = `role-option${badgeKey ? ` ${badgeKey}` : ''}`;
                 option.dataset.roleId = role.id;
                 option.setAttribute('role', 'radio');
 
-                option.setAttribute('title', role.description || role.name);
-                option.setAttribute('aria-label', `Роль ${role.name}`);
+                option.setAttribute('title', role.description || displayName);
+                option.setAttribute('aria-label', `Роль ${displayName}`);
                 option.innerHTML = `
                     <span class="role-option-icon" aria-hidden="true">
                         <span class="material-icons">${iconName}</span>
                     </span>
-                    <span class="role-option-title">${role.name}</span>
+                    <span class="role-option-title">${displayName}</span>
                     <span class="role-option-marker" aria-hidden="true">
                         <span class="material-icons">radio_button_unchecked</span>
                     </span>
@@ -717,5 +727,8 @@
             }
         });
     </script>
+    <footer class="site-footer">
+        <p>© 2025 Центр искусственного интеллекта СФУ</p>
+    </footer>
 </body>
 </html>

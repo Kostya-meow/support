@@ -8,27 +8,41 @@
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/navigation.js"></script>
     <script src="/static/menu_loader.js"></script>
+    <script src="/static/notification.js"></script>
 </head>
 <body>
     <div class="layout">
-        <!-- Сайдбар с навигацией -->
+        <!-- Top Navigation Bar -->
         <aside class="sidebar">
-            <div class="sidebar-content">
-                <div class="sidebar-header">
+            <div class="sidebar-header">
+                <a href="/" style="text-decoration: none; color: inherit;">
                     <h1>Support Desk</h1>
-                </div>
-                
-                <!-- Главная навигация -->
+                </a>
+            </div>
+            
+            <div class="sidebar-content">
                 <div class="sidebar-section">
-                    <div class="sidebar-section-title">Навигация</div>
                     <div class="main-nav" id="mainNav">
                         <!-- Меню загружается динамически -->
                     </div>
                 </div>
-                
-                <!-- Вкладки -->
+            </div>
+            
+            <div class="sidebar-footer">
+                <form id="logoutForm" method="post" action="/logout">
+                    <button type="submit" class="logout-btn">
+                        <span class="material-icons">logout</span>
+                        <span class="btn-text">Выйти</span>
+                    </button>
+                </form>
+            </div>
+        </aside>
+        
+        <!-- Основной контент с двумя колонками: левая - список чатов, правая - чат -->
+        <main class="main-content chat-page">
+            <!-- Левая колонка со списком заявок -->
+            <div class="tickets-sidebar">
                 <div class="sidebar-section">
-                    <div class="sidebar-section-title">Заявки</div>
                     <div class="tabs">
                         <button id="activeTab" class="tab-button active" data-tab="active">
                             <span class="material-icons">check_circle</span>
@@ -44,40 +58,31 @@
                 <ul id="conversations" class="conversation-list"></ul>
             </div>
             
-            <div class="sidebar-footer">
-                <form id="logoutForm" method="post" action="/logout">
-                    <button type="submit" class="logout-btn">
-                        <span class="material-icons">logout</span>
-                        <span class="btn-text">Выйти</span>
-                    </button>
-                </form>
-            </div>
-        </aside>
-        
-        <!-- Основной контент -->
-        <main class="main-content chat-page">
-            <section id="placeholder" class="placeholder">
-                <p>Нет активных заявок. Ожидаем обращения пользователей.</p>
-            </section>
-            <section id="chatPanel" class="chat chat-panel hidden">
-                <div class="chat-top">
-                    <header class="chat-panel__header">
-                        <h2 id="chatTitle">Заявка</h2>
-                        <button id="finishButton" type="button" class="btn-end-game">
-                            <span class="btn-label">Завершить заявку</span>
-                        </button>
-                    </header>
-                    <div id="summaryPanel" class="summary-panel">
-                        <div class="summary-header">
-                            <span class="material-icons">description</span>
-                            <span class="summary-title">Краткое содержание</span>
-                        </div>
-                        <div id="summaryContent" class="summary-content">
-                            <div class="summary-loading">Загрузка саммари...</div>
+            <!-- Правая колонка с контентом чата -->
+            <div class="chat-content-wrapper">
+                <section id="placeholder" class="placeholder">
+                    <p>Нет активных заявок. Ожидаем обращения пользователей.</p>
+                </section>
+                <section id="chatPanel" class="chat chat-panel hidden">
+                    <div class="chat-top">
+                        <header class="chat-panel__header">
+                            <h2 id="chatTitle">Заявка</h2>
+                            <div id="unreadBadge" class="unread-counter hidden"></div>
+                            <button id="finishButton" type="button" class="btn-end-game">
+                                <span class="btn-label">Завершить заявку</span>
+                            </button>
+                        </header>
+                        <div id="summaryPanel" class="summary-panel">
+                            <div class="summary-header">
+                                <span class="material-icons">description</span>
+                                <span class="summary-title">Краткое содержание</span>
+                            </div>
+                            <div id="summaryContent" class="summary-content">
+                                <div class="summary-loading">Загрузка саммари...</div>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div id="messages" class="messages"></div>
+                    <div id="messages" class="messages"></div>
                 <form id="replyForm" class="reply-form" autocomplete="off">
                     <div class="message-input-container">
                         <textarea id="messageInput" placeholder="Ответьте клиенту" required rows="1"></textarea>
@@ -89,6 +94,7 @@
                     </div>
                 </form>
             </section>
+            </div>
         </main>
     </div>
 
@@ -96,6 +102,7 @@
         const conversationsList = document.getElementById('conversations');
         const messagesContainer = document.getElementById('messages');
         const chatTitle = document.getElementById('chatTitle');
+        const unreadBadge = document.getElementById('unreadBadge');
         const replyForm = document.getElementById('replyForm');
         const messageInput = document.getElementById('messageInput');
         const placeholder = document.getElementById('placeholder');
@@ -113,10 +120,75 @@
         let activeConversationId = null;
         let markingRead = false;
         let currentTab = 'active';
+        
+        // Экспортируем activeConversationId в глобальную область для notification.js
+        window.getActiveConversationId = () => activeConversationId;
+        
+        // Telegram-style notification sound - используем AudioContext для надежности
+        let audioContext = null;
+        let notificationBuffer = null;
+        
+        function initAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                // Создаем простой beep звук программно
+                const duration = 0.15;
+                const sampleRate = audioContext.sampleRate;
+                const buffer = audioContext.createBuffer(1, duration * sampleRate, sampleRate);
+                const data = buffer.getChannelData(0);
+                
+                // Генерируем синусоидальный звук (800 Hz)
+                const frequency = 800;
+                for (let i = 0; i < buffer.length; i++) {
+                    const t = i / sampleRate;
+                    data[i] = Math.sin(2 * Math.PI * frequency * t) * Math.exp(-t * 8);
+                }
+                notificationBuffer = buffer;
+            } catch (e) {
+                console.log('Audio initialization failed:', e);
+            }
+        }
+        
+        function playNotificationSound() {
+            try {
+                if (!audioContext) {
+                    initAudio();
+                }
+                if (audioContext && notificationBuffer) {
+                    const source = audioContext.createBufferSource();
+                    source.buffer = notificationBuffer;
+                    
+                    const gainNode = audioContext.createGain();
+                    gainNode.gain.value = 0.3; // Громкость 30%
+                    
+                    source.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    source.start(0);
+                    
+                    console.log('Notification sound played');
+                }
+            } catch (e) {
+                console.log('Sound play failed:', e);
+            }
+        }
+        
+        // Инициализируем аудио при первом клике пользователя
+        document.addEventListener('click', function initOnClick() {
+            initAudio();
+            document.removeEventListener('click', initOnClick);
+        }, { once: true });
 
         function formatTimestamp(timestamp) {
             const date = new Date(timestamp);
-            return date.toLocaleString('ru-RU');
+            const now = new Date();
+            const diffMs = now - date;
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            
+            // Всегда показываем дату И время
+            const timeStr = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            const dateStr = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            
+            return `${dateStr} ${timeStr}`;
         }
 
         function closeChatSocket() {
@@ -132,6 +204,9 @@
             chatPanel.classList.add('hidden');
             placeholder.classList.remove('hidden');
             replyForm.reset();
+            
+            // Возвращаем URL на список заявок
+            history.pushState({}, '', '/tickets');
         }
 
         function renderConversations(conversationsData) {
@@ -141,13 +216,27 @@
             }
 
             conversationsList.innerHTML = '';
+            
+            // Фильтруем по текущему табу
+            const filteredConversations = conversations.filter(conversation => {
+                if (currentTab === 'active') {
+                    // Активные: open и in_progress
+                    return conversation.status === 'open' || conversation.status === 'in_progress';
+                } else {
+                    // Архив: closed и archived
+                    return conversation.status === 'closed' || conversation.status === 'archived';
+                }
+            });
 
-            if (!conversations.length) {
-                hideChatPanel();
+            if (!filteredConversations.length) {
+                conversationsList.innerHTML = '<li class="empty-state">Нет заявок</li>';
+                if (activeConversationId) {
+                    hideChatPanel();
+                }
                 return;
             }
 
-            conversations.forEach((conversation) => {
+            filteredConversations.forEach((conversation) => {
                 const item = document.createElement('li');
                 item.dataset.id = conversation.id;
                 item.classList.add('conversation-item');
@@ -161,11 +250,29 @@
 
                 const title = document.createElement('div');
                 title.className = 'conversation-title';
-                title.textContent = `Заявка #${conversation.id}`;
+                
+                // Добавляем счетчик непрочитанных в заголовок
+                if (conversation.unread_count > 0) {
+                    title.textContent = `Заявка #${conversation.id} (${conversation.unread_count})`;
+                } else {
+                    title.textContent = `Заявка #${conversation.id}`;
+                }
 
                 const meta = document.createElement('div');
                 meta.className = 'conversation-meta';
-                meta.textContent = formatTimestamp(conversation.updated_at);
+                
+                // Время создания
+                const createdTime = document.createElement('div');
+                createdTime.className = 'conversation-time';
+                createdTime.textContent = `Создано: ${formatTimestamp(conversation.created_at)}`;
+                
+                // Время последнего сообщения
+                const updatedTime = document.createElement('div');
+                updatedTime.className = 'conversation-time';
+                updatedTime.textContent = `Обновлено: ${formatTimestamp(conversation.updated_at)}`;
+                
+                meta.appendChild(createdTime);
+                meta.appendChild(updatedTime);
 
                 content.appendChild(title);
                 content.appendChild(meta);
@@ -187,31 +294,64 @@
 
         function renderMessages(messages) {
             messagesContainer.innerHTML = '';
-            messages.forEach((message) => appendMessage(message));
+            
+            // Группируем сообщения по отправителю
+            let lastSender = null;
+            let lastTimestamp = null;
+            
+            messages.forEach((message, index) => {
+                const nextMessage = messages[index + 1];
+                const isSameSender = lastSender === message.sender;
+                const timeDiff = lastTimestamp ? (new Date(message.created_at) - new Date(lastTimestamp)) / 1000 : Infinity;
+                const isGrouped = isSameSender && timeDiff < 60; // Группировать если меньше 60 секунд
+                
+                const isLastInGroup = !nextMessage || 
+                                     nextMessage.sender !== message.sender ||
+                                     (new Date(nextMessage.created_at) - new Date(message.created_at)) / 1000 >= 60;
+                
+                appendMessage(message, isGrouped, isLastInGroup);
+                
+                lastSender = message.sender;
+                lastTimestamp = message.created_at;
+            });
+            
             scrollMessagesToBottom();
         }
 
-        function appendMessage(message) {
+        function appendMessage(message, isGrouped = false, isLastInGroup = true) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `chat-message chat-message-${message.sender}`;
             
-            // Выбираем иконку в зависимости от отправителя (Material Icons)
+            // Добавляем классы для группировки
+            if (isGrouped) {
+                messageDiv.classList.add('grouped');
+            }
+            if (isLastInGroup) {
+                messageDiv.classList.add('last-in-group', 'show-avatar');
+            }
+            
+            // Выбираем иконку и имя в зависимости от отправителя
             let icon = 'person';
+            let senderName = '';
             switch(message.sender) {
                 case 'user':
-                    icon = 'person'; // Пользователь
+                    icon = 'person';
+                    senderName = message.username || 'Пользователь';
                     break;
                 case 'bot':
-                    icon = 'smart_toy'; // Бот
+                    icon = 'smart_toy';
+                    senderName = 'Бот-помощник';
                     break;
                 case 'operator':
-                    icon = 'support_agent'; // Оператор
+                    icon = 'support_agent';
+                    senderName = 'Оператор';
                     break;
             }
             
             messageDiv.innerHTML = `
                 <div class="message-avatar"><span class="material-icons">${icon}</span></div>
                 <div class="message-content">
+                    <div class="message-sender-name">${senderName}</div>
                     <div class="message-text">${message.text}</div>
                     <div class="message-meta">${formatTimestamp(message.created_at)}</div>
                 </div>
@@ -222,6 +362,47 @@
 
         function scrollMessagesToBottom() {
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function showTypingIndicator(sender) {
+            // Удаляем предыдущий индикатор если есть
+            removeTypingIndicator();
+            
+            let icon = 'person';
+            switch(sender) {
+                case 'user':
+                    icon = 'person';
+                    break;
+                case 'bot':
+                    icon = 'smart_toy';
+                    break;
+                case 'operator':
+                    icon = 'support_agent';
+                    break;
+            }
+            
+            const typingDiv = document.createElement('div');
+            typingDiv.className = `typing-indicator chat-message-${sender}`;
+            typingDiv.innerHTML = `
+                <div class="message-avatar"><span class="material-icons">${icon}</span></div>
+                <div class="message-content">
+                    <div class="typing-bubble">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(typingDiv);
+            scrollMessagesToBottom();
+        }
+        
+        function removeTypingIndicator() {
+            const typingIndicator = messagesContainer.querySelector('.typing-indicator');
+            if (typingIndicator) {
+                typingIndicator.remove();
+            }
         }
 
         async function loadConversations() {
@@ -312,6 +493,7 @@
             if (activeConversationId === conversationId) {
                 hideChatPanel();
                 renderConversations(conversations);
+                // URL уже обновлен в hideChatPanel()
                 return;
             }
             selectConversation(conversationId);
@@ -320,10 +502,36 @@
         async function selectConversation(conversationId) {
             const conversation = conversations.find((item) => item.id === conversationId);
             if (!conversation) {
+                console.warn(`Conversation #${conversationId} not found`);
                 return;
             }
             activeConversationId = conversationId;
-            chatTitle.textContent = conversation.title || `Заявка #${conversation.id}`;
+            // Подавляем уведомления для этого чата на короткое время — чтобы избежать гонок
+            try {
+                window.suppressNotificationFor = conversationId;
+                setTimeout(() => {
+                    if (window.suppressNotificationFor === conversationId) {
+                        window.suppressNotificationFor = null;
+                    }
+                }, 1500);
+            } catch (e) {
+                // ignore in environments where window isn't writable
+            }
+            
+            // Изменяем URL на /tickets/ID
+            history.pushState({ conversationId }, '', `/tickets/${conversationId}`);
+            
+            const titleText = conversation.title || `Заявка #${conversation.id}`;
+            chatTitle.textContent = titleText;
+            
+            // Показываем счетчик непрочитанных в заголовке
+            if (conversation.unread_count > 0) {
+                unreadBadge.textContent = conversation.unread_count;
+                unreadBadge.classList.remove('hidden');
+            } else {
+                unreadBadge.classList.add('hidden');
+            }
+            
             placeholder.classList.add('hidden');
             chatPanel.classList.remove('hidden');
             
@@ -347,6 +555,8 @@
             closeChatSocket();
             const url = `${wsProtocol}://${window.location.host}/ws/conversations/${conversationId}`;
             chatSocket = new WebSocket(url);
+            
+            let typingTimeout = null;
 
             chatSocket.onmessage = (event) => {
                 const payload = JSON.parse(event.data);
@@ -355,9 +565,53 @@
                     markConversationRead(conversationId);
                 }
                 if (payload.type === 'message' && payload.conversation_id === activeConversationId) {
-                    appendMessage(payload.message);
+                    // Определяем, нужно ли группировать с предыдущим сообщением
+                    const allMessages = Array.from(messagesContainer.querySelectorAll('.chat-message:not(.typing-indicator)'));
+                    const lastMessage = allMessages[allMessages.length - 1];
+                    
+                    let isGrouped = false;
+                    let isLastInGroup = true;
+                    
+                    if (lastMessage) {
+                        const lastSender = lastMessage.classList.contains('chat-message-user') ? 'user' :
+                                          lastMessage.classList.contains('chat-message-operator') ? 'operator' :
+                                          lastMessage.classList.contains('chat-message-bot') ? 'bot' : null;
+                        
+                        const isSameSender = lastSender === payload.message.sender;
+                        
+                        // Проверяем время между сообщениями
+                        const lastMetaElement = lastMessage.querySelector('.message-meta');
+                        if (lastMetaElement && isSameSender) {
+                            isGrouped = true;
+                            // Удаляем класс show-avatar у предыдущего сообщения
+                            lastMessage.classList.remove('show-avatar', 'last-in-group');
+                            lastMessage.classList.add('grouped');
+                        }
+                    }
+                    
+                    removeTypingIndicator();
+                    appendMessage(payload.message, isGrouped, isLastInGroup);
                     scrollMessagesToBottom();
                     markConversationRead(conversationId);
+                    
+                    // Играем звук если сообщение не от оператора
+                    if (payload.message.sender !== 'operator') {
+                        playNotificationSound();
+                    }
+                }
+                
+                // Typing indicator
+                if (payload.type === 'typing' && payload.conversation_id === activeConversationId) {
+                    showTypingIndicator(payload.sender);
+                    
+                    clearTimeout(typingTimeout);
+                    typingTimeout = setTimeout(() => {
+                        removeTypingIndicator();
+                    }, 3000);
+                }
+                
+                if (payload.type === 'stop_typing' && payload.conversation_id === activeConversationId) {
+                    removeTypingIndicator();
                 }
             };
 
@@ -502,6 +756,19 @@
             if (event.key === 'Escape') {
                 hideChatPanel();
                 renderConversations(conversations);
+                // URL уже обновлен в hideChatPanel()
+            }
+        });
+        
+        // Обработка кнопки "назад" в браузере
+        window.addEventListener('popstate', (event) => {
+            if (event.state && event.state.conversationId) {
+                // Если в истории есть ID разговора, открываем его
+                selectConversation(event.state.conversationId);
+            } else {
+                // Иначе закрываем чат и показываем список
+                hideChatPanel();
+                renderConversations(conversations);
             }
         });
 
@@ -526,8 +793,146 @@
         function displaySummary(summary) {
             summaryContent.innerHTML = `<div class="summary-text">${summary}</div>`;
         }
-        loadConversations();
+        
+        // Инициализация роутинга при загрузке страницы
+        function initializeRouting() {
+            const path = window.location.pathname;
+            const match = path.match(/\/tickets\/(\d+)/);
+            
+            if (match) {
+                const ticketId = parseInt(match[1]);
+                console.log(`🔗 Opening ticket from URL: ${ticketId}`);
+
+                async function tryOpenTicket(attempt = 1) {
+                    let conversation = conversations.find(c => c.id === ticketId);
+                    if (conversation) {
+                        // Определяем к какой категории относится тикет
+                        const isArchived = conversation.status === 'closed' || conversation.status === 'archived';
+                        // Переключаем на нужный таб ПЕРЕД открытием
+                        if (isArchived && currentTab !== 'archived') {
+                            console.log(`📂 Switching to archived tab for ticket #${ticketId}`);
+                            currentTab = 'archived';
+                            archivedTab.classList.add('active');
+                            activeTab.classList.remove('active');
+                        } else if (!isArchived && currentTab !== 'active') {
+                            console.log(`📂 Switching to active tab for ticket #${ticketId}`);
+                            currentTab = 'active';
+                            activeTab.classList.add('active');
+                            archivedTab.classList.remove('active');
+                        }
+                        renderConversations(conversations);
+                        selectConversation(ticketId);
+                    } else if (attempt < 10) {
+                        // Пробуем еще раз через 100мс, максимум 10 попыток
+                        setTimeout(() => { tryOpenTicket(attempt + 1); }, 100);
+                    } else {
+                        // Если тикет так и не найден локально, пробуем подгрузить его с сервера
+                        try {
+                            const resp = await fetch(`/api/conversations/${ticketId}`, { credentials: 'same-origin' });
+                            if (resp.status === 401) {
+                                window.location.href = '/login';
+                                return;
+                            }
+                            if (resp.ok) {
+                                let conv = await resp.json();
+                                // Нормализуем минимально необходимые поля
+                                conv.unread_count = conv.unread_count || 0;
+                                conv.status = conv.status || 'closed';
+                                conv.created_at = conv.created_at || new Date().toISOString();
+                                conv.updated_at = conv.updated_at || conv.created_at;
+                                // Добавляем в локальный массив, обновляем список и открываем
+                                conversations.push(conv);
+                                const isArchived = conv.status === 'closed' || conv.status === 'archived';
+                                if (isArchived && currentTab !== 'archived') {
+                                    currentTab = 'archived';
+                                    archivedTab.classList.add('active');
+                                    activeTab.classList.remove('active');
+                                } else if (!isArchived && currentTab !== 'active') {
+                                    currentTab = 'active';
+                                    activeTab.classList.add('active');
+                                    archivedTab.classList.remove('active');
+                                }
+                                renderConversations(conversations);
+                                selectConversation(ticketId);
+                                return;
+                            }
+                        } catch (e) {
+                            console.error('Error fetching conversation by id:', e);
+                        }
+                        console.warn(`❌ Ticket #${ticketId} not found after retries and server fetch, redirecting to list`);
+                        history.replaceState({}, '', '/tickets');
+                    }
+                }
+                tryOpenTicket();
+            }
+        }
+        
+        // Обработка кнопок браузера назад/вперед
+        window.addEventListener('popstate', (event) => {
+            const path = window.location.pathname;
+            const match = path.match(/\/tickets\/(\d+)/);
+            
+            if (match) {
+                const ticketId = parseInt(match[1]);
+                let conversation = conversations.find(c => c.id === ticketId);
+                
+                if (conversation) {
+                    // Определяем к какой категории относится тикет
+                    const isArchived = conversation.status === 'closed' || conversation.status === 'archived';
+                    
+                    // Переключаем на нужный таб
+                    if (isArchived && currentTab !== 'archived') {
+                        currentTab = 'archived';
+                        archivedTab.classList.add('active');
+                        activeTab.classList.remove('active');
+                    } else if (!isArchived && currentTab !== 'active') {
+                        currentTab = 'active';
+                        activeTab.classList.add('active');
+                        archivedTab.classList.remove('active');
+                    }
+                    
+                    renderConversations(conversations);
+                    
+                    // Открываем тикет без изменения истории (используем внутреннюю функцию)
+                    if (activeConversationId !== ticketId) {
+                        selectConversation(ticketId);
+                    }
+                } else {
+                    // Тикет не найден, редирект на список
+                    history.replaceState({}, '', '/tickets');
+                    hideChatPanel();
+                }
+            } else {
+                // Путь /tickets - закрываем чат
+                hideChatPanel();
+            }
+        });
+        
+        // Обработчики табов
+        activeTab.addEventListener('click', () => {
+            if (currentTab === 'active') return;
+            currentTab = 'active';
+            activeTab.classList.add('active');
+            archivedTab.classList.remove('active');
+            renderConversations(conversations);
+        });
+        
+        archivedTab.addEventListener('click', () => {
+            if (currentTab === 'archived') return;
+            currentTab = 'archived';
+            archivedTab.classList.add('active');
+            activeTab.classList.remove('active');
+            renderConversations(conversations);
+        });
+        
+        loadConversations().then(() => {
+            // После загрузки данных инициализируем роутинг
+            initializeRouting();
+        });
         initConversationsSocket();
     </script>
+    <footer class="site-footer">
+        <p>© 2025 Центр искусственного интеллекта СФУ</p>
+    </footer>
 </body>
 </html>

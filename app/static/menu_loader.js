@@ -28,6 +28,9 @@ async function loadNavigationMenu() {
         const availablePages = permissions.available_pages || [];
         
         console.log('User permissions:', availablePages);
+        
+        // Сохраняем в глобальную область для notification.js
+        window.userPermissions = availablePages;
 
         // Находим контейнер меню
         const menuContainer = document.getElementById('mainNav');

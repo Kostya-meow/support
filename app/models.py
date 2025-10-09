@@ -55,6 +55,7 @@ class Message(Base):
     text = Column(Text, nullable=False)
     telegram_message_id = Column(BigInteger, nullable=True)
     is_system = Column(Boolean, default=False, nullable=False)  # Системное сообщение
+    is_read = Column(Boolean, default=False, nullable=False)  # Прочитано оператором
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Связи

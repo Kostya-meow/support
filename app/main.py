@@ -38,11 +38,28 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 def _serialize_tickets(tickets: list[models.Ticket]) -> list[dict]:
-    return [TicketRead.from_orm(item).model_dump(mode="json") for item in tickets]
+    result = []
+    for ticket in tickets:
+        ticket_data = TicketRead.from_orm(ticket).model_dump(mode="json")
+        # Подсчитываем непрочитанные сообщения от user и bot
+        unread_count = sum(
+            1 for msg in ticket.messages 
+            if msg.sender in ['user', 'bot'] and not msg.is_read
+        )
+        # Ограничиваем максимум 99
+        ticket_data['unread_count'] = min(unread_count, 99)
+        result.append(ticket_data)
+    return result
 
 
 def _serialize_message(message: models.Message) -> dict:
     return MessageRead.from_orm(message).model_dump(mode="json")
+
+
+async def _broadcast_conversations_update(session: AsyncSession, manager: ConnectionManager) -> None:
+    """Обновить список заявок для всех подключенных клиентов"""
+    tickets = await crud.list_tickets(session, archived=False)
+    await manager.broadcast_conversations(_serialize_tickets(tickets))
 
 
 async def update_popularity_scores():
@@ -247,6 +264,13 @@ async def tickets_page(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+@app.get("/tickets/{ticket_id}", response_class=HTMLResponse)
+@require_permission("tickets")
+async def ticket_detail_page(request: Request, ticket_id: int):
+    """Страница конкретной заявки - возвращает тот же HTML, JavaScript откроет нужную заявку"""
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     if auth.is_authenticated_request(request):
@@ -276,7 +300,15 @@ async def logout(request: Request):
         response = JSONResponse({"success": True})
     else:
         response = RedirectResponse(url="/login", status_code=303)
+    
+    # Очищаем cookie сессии
     auth.clear_session_cookie(response)
+    
+    # Добавляем заголовки для очистки кэша
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    
     return response
 
 
@@ -562,6 +594,19 @@ async def api_list_conversations(
     return tickets
 
 
+@app.get("/api/conversations/{conversation_id}", response_model=ConversationRead)
+async def api_get_conversation(
+    conversation_id: int,
+    session: AsyncSession = Depends(get_tickets_session),
+    _: None = Depends(auth.ensure_api_auth),
+) -> ConversationRead:
+    ticket = await crud.get_ticket_by_id(session, conversation_id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    # Возвращаем сериализованный объект тикета
+    return TicketRead.from_orm(ticket)
+
+
 @app.get("/api/conversations/{conversation_id}/messages", response_model=list[MessageRead])
 async def api_list_messages(
     conversation_id: int,
@@ -657,6 +702,9 @@ async def api_reply(
 
     manager: ConnectionManager = request.app.state.connection_manager
     await manager.broadcast_message(conversation_id, _serialize_message(new_message))
+    
+    # Обновляем список заявок для всех подключенных клиентов
+    await _broadcast_conversations_update(session, manager)
 
     return new_message
 
@@ -745,9 +793,18 @@ async def websocket_messages(websocket: WebSocket, conversation_id: int) -> None
         messages = await crud.list_messages_for_ticket(session, conversation_id, include_system=False)
         history_payload = [_serialize_message(item) for item in messages]
 
+    # СНАЧАЛА регистрируем WebSocket подключение и принимаем соединение
     await websocket.accept()
     await connection_manager.register_chat(conversation_id, websocket)
+    
     try:
+        # ПОТОМ отмечаем сообщения как прочитанные (теперь has_active_chat_connections вернет True)
+        async with TicketsSessionLocal() as session:
+            marked_count = await crud.mark_ticket_messages_as_read(session, conversation_id)
+            if marked_count > 0:
+                # Обновляем список заявок для всех подключенных клиентов
+                await _broadcast_conversations_update(session, connection_manager)
+        
         await connection_manager.send_message_history(websocket, conversation_id, history_payload)
         while True:
             await websocket.receive_text()
@@ -774,31 +831,35 @@ async def get_simulator_characters(request: Request):
 @app.post("/api/simulator/start")
 async def start_simulator_session(request: Request, data: dict = Body(...)):
     """Начать новую сессию симулятора"""
-    if not auth.is_authenticated_request(request):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    # Получаем персонажа из body
-    character = data.get("character", "medium")
-    
-    # Используем session cookie как user_id
-    settings = auth.get_settings()
-    user_id = request.cookies.get(settings.cookie_name, "anonymous")
-    simulator: SimulatorService = request.app.state.simulator
-    
-    # Начинаем сессию
-    session = simulator.start_session(user_id, character)
-    
-    # Генерируем первый вопрос
-    question = simulator.generate_question(session)
-    
-    return {
-        "session_id": user_id,
-        "character": session.character,
-        "character_info": simulator.CHARACTERS.get(session.character, {}),
-        "questions_total": session.questions_count,
-        "current_question": session.current_question + 1,
-        "question": question.question,
-    }
+    try:
+        if not auth.is_authenticated_request(request):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        
+        # Получаем персонажа из body
+        character = data.get("character", "medium")
+        
+        # Используем session cookie как user_id
+        settings = auth.get_settings()
+        user_id = request.cookies.get(settings.cookie_name, "anonymous")
+        simulator: SimulatorService = request.app.state.simulator
+        
+        # Начинаем сессию
+        session = simulator.start_session(user_id, character)
+        
+        # Генерируем первый вопрос
+        question = simulator.generate_question(session)
+        
+        return {
+            "session_id": user_id,
+            "character": session.character,
+            "character_info": simulator.CHARACTERS.get(session.character, {}),
+            "questions_total": session.questions_count,
+            "current_question": session.current_question + 1,
+            "question": question.question,
+        }
+    except Exception as e:
+        logger.error(f"Failed to start simulator session: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка запуска сессии: {str(e)}")
 
 
 @app.post("/api/simulator/respond")

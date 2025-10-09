@@ -35,6 +35,14 @@ class ConnectionManager:
             if not sockets:
                 self._chat_clients.pop(conversation_id, None)
 
+    def has_active_chat_connections(self, conversation_id: int) -> bool:
+        """Проверяет, есть ли активные подключения к данному чату"""
+        has_connections = conversation_id in self._chat_clients and len(self._chat_clients[conversation_id]) > 0
+        # Логирование для отладки
+        if has_connections:
+            print(f"🔗 Conversation #{conversation_id} has {len(self._chat_clients[conversation_id])} active connections")
+        return has_connections
+
     async def send_conversations_snapshot(self, websocket: WebSocket, conversations: list[dict]) -> None:
         await self._safe_send(websocket, {"type": "conversations", "conversations": conversations})
 
