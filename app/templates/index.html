@@ -61,7 +61,7 @@
             <!-- Правая колонка с контентом чата -->
             <div class="chat-content-wrapper">
                 <section id="placeholder" class="placeholder">
-                    <p>Нет активных заявок. Ожидаем обращения пользователей.</p>
+                    <p>Выберите активную заявку для продолжения.</p>
                 </section>
                 <section id="chatPanel" class="chat chat-panel hidden">
                     <div class="chat-top">
@@ -718,10 +718,10 @@
             
             if (tabName === 'active') {
                 activeTab.classList.add('active');
-                placeholder.innerHTML = '<p>Нет активных заявок. Ожидаем обращения пользователей.</p>';
+                placeholder.innerHTML = '<p>Выберите активную заявку для продолжения.</p>';
             } else {
                 archivedTab.classList.add('active');
-                placeholder.innerHTML = '<p>Архивных заявок нет.</p>';
+                placeholder.innerHTML = '<p>Выберите архивную заявку для продолжения.</p>';
             }
             
             // Скрываем чат при переключении вкладок
