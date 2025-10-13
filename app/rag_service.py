@@ -443,6 +443,24 @@ class RAGService:
         print(f"RAG DEBUG: Added message to user {user_id}: [{sender_type}] {message[:50]}...")
         print(f"RAG DEBUG: Total messages for user {user_id}: {len(self.chat_histories[user_id])}")
 
+    def add_to_history(self, conversation_id: str, message: str, is_user: bool):
+        """Добавляет сообщение в историю чата для VK/Telegram ботов"""
+        # Извлекаем user_id из conversation_id (например, "vk_306608478" -> 306608478)
+        if "_" in conversation_id:
+            user_id_str = conversation_id.split("_", 1)[1]
+            try:
+                user_id = int(user_id_str)
+                self.add_chat_message(user_id, message, is_user)
+            except ValueError:
+                print(f"RAG DEBUG: Failed to parse user_id from conversation_id: {conversation_id}")
+        else:
+            # Если conversation_id это просто число
+            try:
+                user_id = int(conversation_id)
+                self.add_chat_message(user_id, message, is_user)
+            except ValueError:
+                print(f"RAG DEBUG: Invalid conversation_id: {conversation_id}")
+
     def get_chat_history(self, user_id: int) -> list[ChatMessage]:
         """Получает историю чата для пользователя"""
         return self.chat_histories[user_id]

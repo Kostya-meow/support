@@ -1,5 +1,5 @@
 @echo off
-echo Running migration: add is_read field...
+echo Running migration: VK support...
 call .venv\Scripts\activate
-python migrate_add_is_read.py
+python migrate_vk_support.py
 pause

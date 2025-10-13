@@ -21,7 +21,7 @@ class Ticket(Base):
     __tablename__ = "tickets"
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_chat_id = Column(BigInteger, index=True, nullable=False)
+    telegram_chat_id = Column(String(255), index=True, nullable=False)  # Изменено на String для поддержки VK
     title = Column(String(255), nullable=True)
     summary = Column(Text, nullable=True)  # Краткое описание заявки (авто-генерируется)
     status = Column(String(20), default=TicketStatus.OPEN, nullable=False)
@@ -54,6 +54,7 @@ class Message(Base):
     sender = Column(String(32), nullable=False)  # user, bot, operator
     text = Column(Text, nullable=False)
     telegram_message_id = Column(BigInteger, nullable=True)
+    vk_message_id = Column(BigInteger, nullable=True)
     is_system = Column(Boolean, default=False, nullable=False)  # Системное сообщение
     is_read = Column(Boolean, default=False, nullable=False)  # Прочитано оператором
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

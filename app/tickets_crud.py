@@ -14,7 +14,7 @@ from app import models
 
 async def get_open_ticket_by_chat_id(
     session: AsyncSession,
-    telegram_chat_id: int,
+    telegram_chat_id: str,
 ) -> Optional[models.Ticket]:
     """Получить открытую заявку для данного чата."""
     result = await session.execute(
@@ -30,7 +30,7 @@ async def get_open_ticket_by_chat_id(
 
 async def create_ticket(
     session: AsyncSession,
-    telegram_chat_id: int,
+    telegram_chat_id: str,
     title: Optional[str] = None,
 ) -> models.Ticket:
     """Создать новую заявку."""
@@ -175,6 +175,7 @@ async def add_message(
     sender: str,
     text: str,
     telegram_message_id: Optional[int] = None,
+    vk_message_id: Optional[int] = None,
     is_system: bool = False,
     created_at: Optional[datetime] = None,
     is_read: bool = False,
@@ -185,6 +186,7 @@ async def add_message(
         sender=sender,
         text=text,
         telegram_message_id=telegram_message_id,
+        vk_message_id=vk_message_id,
         is_system=is_system,
         is_read=is_read,
     )

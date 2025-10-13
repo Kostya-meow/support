@@ -10,7 +10,8 @@ from app.models import TicketStatus
 
 class TicketRead(BaseModel):
     id: int
-    telegram_chat_id: int
+    # Store chat id as string to support Telegram numeric ids and VK style ids like 'vk_123456'
+    telegram_chat_id: str
     title: Optional[str]
     summary: Optional[str]
     status: TicketStatus
@@ -28,6 +29,14 @@ class TicketRead(BaseModel):
         """Проверяет, является ли заявка архивной"""
         from app.models import TicketStatus
         return self.status in [TicketStatus.CLOSED, TicketStatus.ARCHIVED]
+
+    @property
+    def chat_id_numeric(self) -> int | None:
+        """If the telegram_chat_id represents a numeric id, return it as int, otherwise None."""
+        try:
+            return int(self.telegram_chat_id)
+        except Exception:
+            return None
 
 
 class MessageRead(BaseModel):

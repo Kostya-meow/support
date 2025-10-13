@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import auth, models, tickets_crud as crud
 from app.bot import create_dispatcher, start_bot
+from app.vk_bot import create_vk_bot, start_vk_bot
 from app.config import load_config
 from app.database import get_tickets_session, get_knowledge_session, init_db, TicketsSessionLocal, KnowledgeSessionLocal, get_session
 from app.rag_service import RAGService
@@ -40,7 +41,32 @@ templates = Jinja2Templates(directory="app/templates")
 def _serialize_tickets(tickets: list[models.Ticket]) -> list[dict]:
     result = []
     for ticket in tickets:
-        ticket_data = TicketRead.from_orm(ticket).model_dump(mode="json")
+        # Ensure telegram_chat_id is a string when it contains non-numeric VK ids like 'vk_123'
+        try:
+            # Try direct conversion first
+            ticket_data = TicketRead.from_orm(ticket).model_dump(mode="json")
+        except Exception:
+            # Fallback: coerce telegram_chat_id to string and build dict manually
+            try:
+                raw = ticket.__dict__.copy()
+                raw['telegram_chat_id'] = str(getattr(ticket, 'telegram_chat_id', ''))
+                # Build minimal payload matching TicketRead fields
+                ticket_data = {
+                    'id': raw.get('id'),
+                    'telegram_chat_id': raw.get('telegram_chat_id'),
+                    'title': raw.get('title'),
+                    'summary': raw.get('summary'),
+                    'status': raw.get('status'),
+                    'priority': raw.get('priority'),
+                    'created_at': raw.get('created_at'),
+                    'first_response_at': raw.get('first_response_at'),
+                    'closed_at': raw.get('closed_at'),
+                    'updated_at': raw.get('updated_at'),
+                }
+            except Exception:
+                # As last resort, skip this ticket
+                logger.exception("Failed to serialize ticket %s", getattr(ticket, 'id', '<unknown>'))
+                continue
         # Подсчитываем непрочитанные сообщения от user и bot
         unread_count = sum(
             1 for msg in ticket.messages 
@@ -187,6 +213,7 @@ async def update_popularity_scores():
 
 
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    logger.info("🚀 Starting application lifespan...")
     await init_db()
     app.state.connection_manager = connection_manager
 
@@ -226,6 +253,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.bot = None
         app.state.dispatcher = None
     
+    # VK Bot
+    vk_token = os.getenv("VK_ACCESS_TOKEN")
+    vk_bot_task: asyncio.Task | None = None
+    logger.info(f"VK: Token found: {'YES' if vk_token else 'NO'}")
+    if vk_token:
+        logger.info("VK: Attempting to create VK bot...")
+        vk_run_bot = create_vk_bot(TicketsSessionLocal, connection_manager, rag_service, vk_token)
+        if vk_run_bot is not None:
+            logger.info("VK: Bot created successfully, starting task...")
+            app.state.vk_bot = vk_run_bot
+            vk_bot_task = asyncio.create_task(start_vk_bot(vk_run_bot))
+            logger.info("VK: Bot task started")
+        else:
+            logger.warning("VK: Bot disabled due to configuration issues")
+            app.state.vk_bot = None
+    else:
+        logger.warning("VK_ACCESS_TOKEN is not set. VK integration is disabled.")
+        app.state.vk_bot = None
+    
     # Запускаем фоновую задачу обновления популярности
     popularity_task = asyncio.create_task(update_popularity_scores())
     logger.info("✅ Фоновая задача обновления популярности запущена")
@@ -237,6 +283,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             bot_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await bot_task
+        if vk_bot_task:
+            vk_bot_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await vk_bot_task
         if popularity_task:
             popularity_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -647,8 +697,28 @@ async def api_finish(
     )
 
     bot: Bot | None = request.app.state.bot
-    if bot is not None:
-        await bot.send_message(ticket.telegram_chat_id, finish_text)
+    # Send finish notification to the correct platform
+    if isinstance(ticket.telegram_chat_id, str) and ticket.telegram_chat_id.startswith('vk_'):
+        try:
+            from app.vk_bot import VK_API
+            if VK_API is not None:
+                peer = int(ticket.telegram_chat_id.split('_', 1)[1])
+                try:
+                    import vk_api
+                    try:
+                        random_id = vk_api.utils.get_random_id()
+                    except Exception:
+                        random_id = 0
+                except Exception:
+                    random_id = 0
+                VK_API.messages.send(peer_id=peer, message=finish_text, random_id=random_id)
+            else:
+                logger.warning('VK API client not initialized; cannot send finish notification')
+        except Exception as e:
+            logger.exception(f"Failed to send finish notification via VK: {e}")
+    else:
+        if bot is not None:
+            await bot.send_message(ticket.telegram_chat_id, finish_text)
 
     # Добавляем финальное сообщение и закрываем заявку
     finish_message = await crud.add_message(session, conversation_id, "bot", finish_text, is_system=True)
@@ -696,8 +766,29 @@ async def api_reply(
     formatted_message = f"<b>Оператор {operator_name}:</b>\n{message.text}"
 
     bot: Bot | None = request.app.state.bot
-    if bot is not None:
-        await bot.send_message(ticket.telegram_chat_id, formatted_message, parse_mode='HTML')
+    # If ticket.telegram_chat_id is a VK chat id (vk_...), send via VK instead of Telegram
+    if isinstance(ticket.telegram_chat_id, str) and ticket.telegram_chat_id.startswith('vk_'):
+        try:
+            from app.vk_bot import VK_API
+            if VK_API is not None:
+                # peer_id is the numeric part after 'vk_'
+                peer = int(ticket.telegram_chat_id.split('_', 1)[1])
+                try:
+                    import vk_api
+                    try:
+                        random_id = vk_api.utils.get_random_id()
+                    except Exception:
+                        random_id = 0
+                except Exception:
+                    random_id = 0
+                VK_API.messages.send(peer_id=peer, message=formatted_message, random_id=random_id)
+            else:
+                logger.warning('VK API client not initialized; cannot send operator message')
+        except Exception as e:
+            logger.exception(f"Failed to send operator reply via VK: {e}")
+    else:
+        if bot is not None:
+            await bot.send_message(ticket.telegram_chat_id, formatted_message, parse_mode='HTML')
 
     new_message = await crud.add_message(session, conversation_id, "operator", message.text, is_system=False)
 

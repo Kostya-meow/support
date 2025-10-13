@@ -22,3 +22,4 @@ pydub
 imageio[ffmpeg]
 bcrypt
 pyngrok
+vk_api
