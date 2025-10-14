@@ -342,8 +342,9 @@ class RAGService:
             token_count = len(doc["content"].split())
             if total_tokens + token_count > self.top_n_tokens + self.top_m_tokens:
                 break
+            # Do NOT expose internal doc identifiers to the LLM or user-facing text.
+            # Provide only a human-friendly title and content.
             docs.append({
-                "doc_id": f"doc_{doc_idx}",
                 "title": doc["question"][:80] or "Документ",
                 "content": doc["content"],
             })
@@ -603,11 +604,20 @@ class RAGService:
             return RAGResult(message, False, filter_info, 1.0)  # Высокий score = низкая уверенность
 
         history_text = self._format_history(conversation_id)
-        doc_payload = json.dumps(documents, ensure_ascii=False)
+        # Build a clean, human-readable documents payload (titles + short excerpts)
+        safe_docs = []
+        for d in documents:
+            title = d.get('title') or 'Документ'
+            content = d.get('content') or ''
+            # Truncate content to a reasonable length for the prompt
+            excerpt = ' '.join(content.split()[:120])
+            safe_docs.append({"title": title, "excerpt": excerpt})
+        doc_payload = json.dumps(safe_docs, ensure_ascii=False)
+
         combined_prompt = (
             f"Промпт персоны:\n{self.persona_prompt}\n\n"
             f"История диалога:\n{history_text}\n\n"
-            f"Документы:\n{doc_payload}\n\n"
+            f"Документы (название и выдержка):\n{doc_payload}\n\n"
             f"Используя документы и историю, ответь на вопрос пользователя:\n{preprocessed_query}"
         )
         messages = [
@@ -615,7 +625,10 @@ class RAGService:
             {"role": "user", "content": combined_prompt},
         ]
         final_answer_raw = self._call_llm(messages, temperature=0.1, max_tokens=512)
-        final_answer, eval_score = self._evaluate_answer(final_answer_raw, history_text)
+        # Post-process final answer: strip any internal doc_x tokens or debug traces
+        cleaned_raw = re.sub(r"doc_\d+", "", final_answer_raw)
+        cleaned_raw = re.sub(r"\[doc_\d+\]", "", cleaned_raw)
+        final_answer, eval_score = self._evaluate_answer(cleaned_raw, history_text)
         filter_info["evaluation_probability"] = eval_score
         self._store_history(conversation_id, preprocessed_query, final_answer)
         

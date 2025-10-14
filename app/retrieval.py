@@ -69,6 +69,38 @@ class KnowledgeBase:
         result["score"] = float(distances[0][0])
         return result
 
+    async def search_top_k(self, query: str, top_k: int = 3) -> list[dict]:
+        """Возвращает список топ-N записей базы знаний, каждая запись содержит id, question, answer и score."""
+        model = await self._get_model()
+        vector = await _encode_texts(model, [query])
+
+        async with self._state_lock:
+            if self._index is None or not self._entries:
+                return []
+            index = self._index
+            entries = list(self._entries)
+
+        k = min(top_k, len(entries))
+        distances, indices = index.search(vector, k)
+        results: list[dict] = []
+        for i in range(k):
+            idx = int(indices[0][i]) if indices.size else -1
+            if idx < 0 or idx >= len(entries):
+                continue
+            item = entries[idx].copy()
+            # distances are similarity scores (inner product normalized)
+            item["score"] = float(distances[0][i])
+            results.append(item)
+        return results
+
+    async def get_by_id(self, entry_id: int) -> dict | None:
+        """Возвращает запись базы знаний по id (или None)."""
+        async with self._state_lock:
+            for e in self._entries:
+                if e.get('id') == entry_id:
+                    return e.copy()
+        return None
+
     async def _update_state_from_entries(self, entries: Iterable[models.KnowledgeEntry]) -> None:
         entries = list(entries)
         if not entries:

@@ -244,7 +244,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if token:
         bot = Bot(token=token)
-        dispatcher = create_dispatcher(TicketsSessionLocal, connection_manager, rag_service)
+        # Pass knowledge_base to dispatcher so Telegram bot can query top-k KB entries
+        dispatcher = create_dispatcher(TicketsSessionLocal, connection_manager, rag_service, knowledge_base)
         app.state.bot = bot
         app.state.dispatcher = dispatcher
         bot_task = asyncio.create_task(start_bot(bot, dispatcher))

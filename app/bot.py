@@ -9,6 +9,11 @@ from collections import defaultdict
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+import uuid
+import html
+
+# In-memory mapping for short callback tokens -> full topic text
+callback_map: dict[str, str] = {}
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import tickets_crud as crud, models
@@ -51,6 +56,7 @@ def create_dispatcher(
     session_maker: async_sessionmaker[AsyncSession],
     connection_manager: ConnectionManager,
     rag_service: RAGService,
+    knowledge_base=None,
 ) -> Dispatcher:
     router = Router()
 
@@ -112,6 +118,69 @@ def create_dispatcher(
         await _broadcast_message(ticket.id, MessageRead.from_orm(db_message))
         await connection_manager.broadcast_conversations(tickets_payload)
         return ticket.id, True
+
+    def _make_concise_labels(candidates: list[str], max_len: int = 30) -> list[str]:
+        """Generate concise 2-3 word labels from candidate strings.
+
+        - Normalize common tokens (e.g., wifi -> Wi‑Fi)
+        - Prefer meaningful short phrases (2-3 words)
+        - Ensure labels are unique (append short differentiator if needed)
+        - Do not cut words in the middle; add ellipsis if truncated
+        """
+        def normalize(s: str) -> str:
+            if not s:
+                return ''
+            s = s.strip()
+            # Normalize wifi variants to Wi‑Fi
+            s = s.replace('wifi', 'Wi‑Fi').replace('wi‑fi', 'Wi‑Fi').replace('WiFi', 'Wi‑Fi')
+            # collapse excessive whitespace
+            s = ' '.join(s.split())
+            return s
+
+        labels: list[str] = []
+        seen: set[str] = set()
+
+        for orig in candidates:
+            s = normalize(orig)
+            if not s:
+                s = orig or ''
+            # pick first 2-3 words if possible
+            parts = s.split()
+            if len(parts) >= 3:
+                cand = ' '.join(parts[:3])
+            else:
+                cand = ' '.join(parts)
+
+            # fallback to shorter if too long
+            if len(cand) > max_len:
+                # try first two words
+                cand = ' '.join(parts[:2]) if len(parts) >= 2 else parts[0][:max_len]
+
+            # final truncate without cutting words
+            if len(cand) > max_len:
+                # truncate to max_len but avoid cutting last word
+                truncated = cand[:max_len]
+                if ' ' in truncated:
+                    truncated = truncated.rsplit(' ', 1)[0]
+                cand = truncated.rstrip() + '...'
+
+            # Ensure uniqueness: if duplicate, append a short suffix number
+            base = cand
+            i = 1
+            while cand in seen:
+                i += 1
+                suffix = f" ({i})"
+                allowed = max_len - len(suffix)
+                if len(base) > allowed:
+                    trimmed = base[:allowed].rsplit(' ', 1)[0]
+                    cand = f"{trimmed}{suffix}"
+                else:
+                    cand = f"{base}{suffix}"
+
+            seen.add(cand)
+            labels.append(cand)
+
+        return labels
 
     async def _create_ticket_and_add_message(message: Message, text: str) -> int:
         """Создает новую заявку и добавляет первое сообщение"""
@@ -286,7 +355,6 @@ def create_dispatcher(
             
             # RAG уже вернул текст типа "Могу подключить оператора", не дублируем!
             combined_text = (
-                f"<b>Бот:</b>\n"
                 f"{rag_result.final_answer}\n\n"
                 f"⏱ Среднее время ответа: <b>{avg_response_time}</b>\n\n"
                 f"Подключить?"
@@ -304,7 +372,7 @@ def create_dispatcher(
 
         # Обычный ответ от бота
         answer_text = rag_result.final_answer or "Я пока не нашла ответ. Попробуйте уточнить вопрос."
-        formatted_answer = f"<b>Бот:</b>\n{answer_text}"
+        formatted_answer = f"{answer_text}"
         
         # Показываем кнопку оператора ТОЛЬКО если уверенность низкая (confidence_score > 0.6)
         # confidence_score - это evaluation score, чем выше, тем хуже качество ответа
@@ -313,7 +381,6 @@ def create_dispatcher(
             avg_response_time = await _get_average_response_time()
             
             combined_text = (
-                f"<b>Бот:</b>\n{answer_text}\n\n"
                 f"Могу подключить оператора.\n"
                 f"⏱ Среднее время ответа: <b>{avg_response_time}</b>\n\n"
                 f"Подключить?"
@@ -333,17 +400,33 @@ def create_dispatcher(
             except Exception:
                 logger.exception("Failed to send confident answer to chat %s", message.chat.id)
 
-            # Suggest topics (short quick-follow buttons)
+            # Suggest top-k KB questions (use knowledge_base if available)
             try:
-                topics = await asyncio.to_thread(rag_service.suggest_topics, conversation_id, user_text, answer_text)
-                if topics:
-                    buttons = []
-                    for t in topics:
-                        cb = f"topic::{t}"
-                        # If callback_data might be long, we could map to a short id — for now keep it simple
-                        buttons.append([InlineKeyboardButton(text=t, callback_data=cb)])
-                    topic_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-                    await message.answer("Хотите узнать подробнее по этим темам:", reply_markup=topic_kb)
+                if knowledge_base is not None:
+                    top = await knowledge_base.search_top_k(user_text, top_k=3)
+                    if top:
+                        # collect candidate strings for label generation
+                        candidates = [ (entry.get('question') or '') for entry in top ]
+                        labels = _make_concise_labels(candidates, max_len=30)
+                        buttons = []
+                        for entry, label in zip(top, labels):
+                            eid = entry.get('id')
+                            cb = f"kb::{eid}"
+                            buttons.append([InlineKeyboardButton(text=label, callback_data=cb)])
+                        topic_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+                        await message.answer("Возможно, пригодится один из этих быстрых ответов:", reply_markup=topic_kb)
+                else:
+                    # Fallback to previous suggest_topics if knowledge_base not provided
+                    topics = await asyncio.to_thread(rag_service.suggest_topics, conversation_id, user_text, answer_text)
+                    if topics:
+                        buttons = []
+                        for t in topics:
+                            token = str(uuid.uuid4())[:8]
+                            callback_map[token] = t
+                            cb = f"topic::{token}"
+                            buttons.append([InlineKeyboardButton(text=t, callback_data=cb)])
+                        topic_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+                        await message.answer("Хотите узнать подробнее по этим темам:", reply_markup=topic_kb)
             except Exception:
                 logger.exception("Failed to generate or send topic suggestions for chat %s", message.chat.id)
 
@@ -351,7 +434,8 @@ def create_dispatcher(
     async def on_topic_callback(query: CallbackQuery) -> None:
         # quick handler: emulate user asking the topic question
         data = (query.data or '')
-        topic = data.split('::', 1)[1] if '::' in data else data
+        token = data.split('::', 1)[1] if '::' in data else data
+        topic = callback_map.get(token, token)
         try:
             await query.answer()  # remove loading
         except Exception:
@@ -363,19 +447,128 @@ def create_dispatcher(
                 await query.bot.send_chat_action(chat_id, 'typing')
             except Exception:
                 pass
-            # Generate reply synchronously in thread
-            rag_result: RAGResult = await asyncio.to_thread(rag_service.generate_reply, chat_id, topic)
-            # Send back to chat
-            text = rag_result.final_answer or 'Нет ответа.'
+            # Edit original message to show selection and remove buttons
+            if query.message:
+                try:
+                    sel_label = topic
+                    await query.message.edit_text(f"Вы выбрали: \"{sel_label}\"")
+                except Exception:
+                    pass
             try:
+                # Generate reply synchronously in thread
+                rag_result: RAGResult = await asyncio.to_thread(rag_service.generate_reply, chat_id, topic)
+                # Send back to chat (LLM-generated)
+                text = rag_result.final_answer or 'Нет ответа.'
                 if query.message:
                     await query.message.answer(text)
                 else:
                     await query.bot.send_message(query.from_user.id, text)
+                # After sending answer, suggest follow-up topics (buttons) for this answer
+                try:
+                    follow_topics = await asyncio.to_thread(rag_service.suggest_topics, chat_id, topic, text)
+                    if follow_topics:
+                        # generate concise labels for follow-up topics
+                        labels = _make_concise_labels(follow_topics, max_len=30)
+                        f_buttons = []
+                        for t, lab in zip(follow_topics, labels):
+                            token = str(uuid.uuid4())[:8]
+                            callback_map[token] = t
+                            f_buttons.append([InlineKeyboardButton(text=lab, callback_data=f"topic::{token}")])
+                        f_kb = InlineKeyboardMarkup(inline_keyboard=f_buttons)
+                        if query.message:
+                            await query.message.answer("Хотите узнать ещё?", reply_markup=f_kb)
+                        else:
+                            await query.bot.send_message(query.from_user.id, "Хотите узнать ещё?", reply_markup=f_kb)
+                except Exception:
+                    logger.exception('Failed to send follow-up topics')
             except Exception:
-                logger.exception('Failed to send topic reply')
+                logger.exception('Error handling topic callback')
         except Exception:
             logger.exception('Error handling topic callback')
+
+    @router.callback_query(F.data.startswith('kb::'))
+    async def on_kb_callback(query: CallbackQuery) -> None:
+        data = (query.data or '')
+        parts = data.split('::')
+        if len(parts) < 2:
+            try:
+                await query.answer()
+            except Exception:
+                pass
+            return
+
+        try:
+            entry_id = int(parts[1])
+        except Exception:
+            try:
+                await query.answer()
+            except Exception:
+                pass
+            return
+
+        # optional label passed in callback (legacy) - we'll use it if present
+        label = parts[2] if len(parts) >= 3 else None
+
+        try:
+            await query.answer()  # remove loading state
+        except Exception:
+            pass
+
+        try:
+            kb = knowledge_base
+            entry = None
+            answer_text = None
+            if kb is not None:
+                try:
+                    entry = await kb.get_by_id(entry_id)
+                    if entry:
+                        answer_text = entry.get('answer')
+                except Exception:
+                    logger.exception('Failed to fetch KB entry by id')
+
+            if not answer_text:
+                answer_text = 'Извините, не удалось получить ответ из базы знаний.'
+
+            # Edit original message to show selection and clear buttons
+            if query.message:
+                try:
+                    sel_display = label or (entry.get('question') if entry else str(entry_id))
+                    await query.message.edit_text(f"Вы выбрали: \"{html.escape(sel_display)}\"")
+                except Exception:
+                    pass
+
+            # Craft a friendly LLM-based answer using the KB entry as context
+            try:
+                if entry:
+                    chat_id = query.message.chat.id if query.message else query.from_user.id
+                    user_prompt = (
+                        f"Вопрос из базы: {entry.get('question')}\n"
+                        f"Запись базы (источник): {entry.get('answer')}\n\n"
+                        "Сформируй дружелюбный, понятный пользователю ответ в 2-5 предложениях, сохраняя суть и давая практические шаги, если нужно."
+                    )
+                    messages_for_llm = [
+                        {"role": "system", "content": rag_service.persona_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ]
+                    crafted = await asyncio.to_thread(rag_service._call_llm, messages_for_llm, 0.1, 400)
+                    answer_to_send = crafted or answer_text
+                else:
+                    answer_to_send = answer_text
+            except Exception:
+                logger.exception('Failed to craft LLM answer from KB entry')
+                answer_to_send = answer_text
+
+            # Send the crafted answer (escape HTML to avoid accidental markup from LLM)
+            try:
+                safe_answer = html.escape(answer_to_send)
+                if query.message:
+                    await query.message.answer(safe_answer, parse_mode='HTML')
+                else:
+                    await query.bot.send_message(query.from_user.id, safe_answer, parse_mode='HTML')
+            except Exception:
+                logger.exception('Failed to send KB crafted answer')
+        except Exception:
+            logger.exception('Error sending KB answer')
 
     async def _send_bot_message(ticket_id: int, text: str, is_system: bool = False) -> None:
         # Проверяем, есть ли активные подключения к этому чату
@@ -407,7 +600,7 @@ def create_dispatcher(
             "💬 Просто напишите ваш вопрос, и я постараюсь помочь!\n"
             "Если мой ответ не подойдет, я смогу подключить оператора."
         )
-        formatted_greeting = f"<b>Бот:</b>\n{greeting}"
+        formatted_greeting = f"{greeting}"
         await message.answer(formatted_greeting, parse_mode='HTML')
 
     @router.message(F.voice)
