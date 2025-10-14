@@ -17,7 +17,7 @@ callback_map: dict[str, str] = {}
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import tickets_crud as crud, models
-from app.config import load_bot_responses
+from app.config import load_telegram_responses
 from app.rag_service import RAGResult, RAGService
 from app.realtime import ConnectionManager
 from app.schemas import TicketRead, MessageRead
@@ -542,8 +542,8 @@ def create_dispatcher(
             try:
                 if entry:
                     chat_id = query.message.chat.id if query.message else query.from_user.id
-                    bot_responses = load_bot_responses()
-                    user_prompt_template = bot_responses.get("telegram", {}).get("kb_craft_user_prompt", "")
+                    telegram_responses = load_telegram_responses()
+                    user_prompt_template = telegram_responses.get("kb_craft_user_prompt", "")
                     user_prompt = user_prompt_template.format(
                         question=entry.get('question', ''),
                         answer=entry.get('answer', '')
@@ -591,8 +591,8 @@ def create_dispatcher(
     async def on_start(message: Message) -> None:
         # При /start всегда отвечаем ботом, заявку не создаем
         user_name = message.from_user.first_name if message.from_user else "пользователь"
-        bot_responses = load_bot_responses()
-        greeting = bot_responses.get("telegram", {}).get("start_greeting", "").format(user_name=user_name)
+        telegram_responses = load_telegram_responses()
+        greeting = telegram_responses.get("start_greeting", "").format(user_name=user_name)
         formatted_greeting = f"{greeting}"
         await message.answer(formatted_greeting, parse_mode='HTML')
 

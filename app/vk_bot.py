@@ -15,7 +15,7 @@ import json
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import tickets_crud as crud, models
-from app.config import load_bot_responses
+from app.config import load_vk_responses
 from app.rag_service import RAGResult, RAGService
 from app.realtime import ConnectionManager
 from app.schemas import TicketRead, MessageRead
@@ -548,8 +548,7 @@ def create_vk_bot(
 
     async def _handle_vk_voice_message(user_id: int, attachment: dict, message_id: int):
         """Обрабатывает голосовое сообщение из VK"""
-        bot_responses = load_bot_responses()
-        vk_responses = bot_responses.get("vk", {})
+        vk_responses = load_vk_responses()
         try:
             logger.info(f"VK: Processing voice message from user {user_id}")
 
@@ -592,8 +591,8 @@ def create_vk_bot(
             await _send_vk_typing(user_id)
 
             # Уведомляем пользователя о начале обработки
-            bot_responses = load_bot_responses()
-            processing_msg = bot_responses.get("vk", {}).get("processing_message", "⏳ Обрабатываю ваш запрос...")
+            vk_responses = load_vk_responses()
+            processing_msg = vk_responses.get("processing_message", "⏳ Обрабатываю ваш запрос...")
             await _send_vk_message(user_id, processing_msg)
 
             # Получаем URL аудио файл (поддерживаем разные варианты полей)

@@ -67,36 +67,15 @@ class SimulatorSession:
 class SimulatorService:
     """Сервис симулятора"""
     
-    # Персонажи с описанием
-    CHARACTERS = {
-        "easy": {
-            "name": "Новичок Вася",
-            "emoji": "🙂",
-            "description": "Только начал работать, задает простые вопросы",
-            "difficulty": "easy"
-        },
-        "medium": {
-            "name": "Специалист Ольга",
-            "emoji": "😐",
-            "description": "Опытный пользователь, знает что хочет",
-            "difficulty": "medium"
-        },
-        "hard": {
-            "name": "Директор Игорь",
-            "emoji": "😤",
-            "description": "Требовательный руководитель, нужны точные ответы",
-            "difficulty": "hard"
-        }
-    }
-    
     def __init__(self, rag_service: RAGService):
         self.rag_service = rag_service
         self.simulator_prompts = load_simulator_prompts()
+        self.characters = self.simulator_prompts.get("characters", {})
         self.sessions: dict[str, SimulatorSession] = {}  # user_id -> session
         
     def start_session(self, user_id: str, character: str) -> SimulatorSession:
         """Начать новую сессию"""
-        if character not in self.CHARACTERS:
+        if character not in self.characters:
             character = "medium"
             
         session = SimulatorSession(character=character, questions_count=5)
@@ -146,7 +125,7 @@ class SimulatorService:
             topic = random.choice(topics)
             
             # Генерируем вопрос через LLM
-            character_info = self.CHARACTERS[session.character]
+            character_info = self.characters[session.character]
             
             prompt = self.simulator_prompts.get("question_generation", {}).get("base_prompt", "").format(
                 character_name=character_info['name'],
