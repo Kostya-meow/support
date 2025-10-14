@@ -8,6 +8,7 @@ import random
 from dataclasses import dataclass
 from typing import Optional
 
+from app.config import load_config, load_simulator_prompts
 from app.rag_service import RAGService
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,7 @@ class SimulatorService:
     
     def __init__(self, rag_service: RAGService):
         self.rag_service = rag_service
+        self.simulator_prompts = load_simulator_prompts()
         self.sessions: dict[str, SimulatorSession] = {}  # user_id -> session
         
     def start_session(self, user_id: str, character: str) -> SimulatorSession:
@@ -146,15 +148,11 @@ class SimulatorService:
             # Генерируем вопрос через LLM
             character_info = self.CHARACTERS[session.character]
             
-            prompt = f"""Ты — {character_info['name']}, {character_info['description']}.
-
-Сгенерируй ОДИН короткий вопрос (1-2 предложения) по теме "{topic}" для IT-поддержки.
-Вопрос должен быть в стиле персонажа:
-- Новичок: простые базовые вопросы, может не знать терминов
-- Специалист: конкретные технические вопросы
-- Директор: требовательный тон, нужна срочность и четкость
-
-Верни ТОЛЬКО текст вопроса, без объяснений."""
+            prompt = self.simulator_prompts.get("question_generation", {}).get("base_prompt", "").format(
+                character_name=character_info['name'],
+                character_description=character_info['description'],
+                topic=topic
+            )
 
             # Используем LLM напрямую через RAG сервис
             question_text = self._generate_with_llm(prompt)
@@ -235,40 +233,12 @@ class SimulatorService:
         ai_answer = self._generate_ai_answer(question.question, question.context)
         
         # Оцениваем ответ оператора
-        evaluation_prompt = f"""Ты — строгий эксперт по оценке работы операторов IT-поддержки.
-
-ВОПРОС ПОЛЬЗОВАТЕЛЯ:
-{question.question}
-
-КОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ:
-{question.context}
-
-ОТВЕТ ОПЕРАТОРА:
-{user_answer}
-
-ЭТАЛОННЫЙ ОТВЕТ:
-{ai_answer}
-
-Оцени ответ оператора по шкале 0-100 и дай краткую обратную связь (2-3 предложения).
-
-ВАЖНЫЕ ПРАВИЛА ОЦЕНКИ:
-- Короткие ответы (меньше 20 слов) - максимум 30 баллов
-- Односложные ответы ("ок", "хорошо", "да") - 0-10 баллов
-- Ответ без конкретного решения проблемы - максимум 40 баллов
-- Грубые или непрофессиональные ответы - 0 баллов
-- Отличный ответ (80-100 баллов) должен быть ПОЛНЫМ, ВЕЖЛИВЫМ, СТРУКТУРИРОВАННЫМ и содержать КОНКРЕТНОЕ РЕШЕНИЕ
-
-Критерии оценки:
-1. Правильность решения (40 баллов) - дан ли корректный ответ на вопрос
-2. Полнота (20 баллов) - достаточно ли деталей для решения
-3. Тон и вежливость (20 баллов) - профессионализм общения
-4. Структурированность (20 баллов) - понятность изложения
-
-Верни ответ в формате:
-SCORE: [число 0-100]
-FEEDBACK: [текст обратной связи]
-
-Будь объективен и строг. Высокие баллы даются только за ДЕЙСТВИТЕЛЬНО хорошие ответы."""
+        evaluation_prompt = self.simulator_prompts.get("evaluation", {}).get("evaluation_prompt", "").format(
+            question=question.question,
+            context=question.context,
+            user_answer=user_answer,
+            ai_answer=ai_answer
+        )
 
         evaluation_text = self._generate_with_llm(evaluation_prompt)
         
@@ -340,25 +310,11 @@ FEEDBACK: [текст обратной связи]
             return 0  # За попытку обмана - 0 баллов
         
         # Анализируем тональность feedback
-        validation_prompt = f"""Проанализируй отзыв и определи, соответствует ли оценка {initial_score} баллов содержанию отзыва.
-
-ОТЗЫВ:
-{feedback}
-
-ОТВЕТ ОПЕРАТОРА:
-{user_answer}
-
-Верни ТОЛЬКО число от 0 до 100 - справедливую оценку на основе отзыва.
-Если отзыв содержит критику, недостатки, ошибки - снижай оценку.
-Если отзыв положительный и хвалит ответ - оставь высокую оценку.
-
-Правила:
-- "не решает проблему", "неполный", "недостаточно" = максимум 40 баллов
-- "есть недочеты", "можно улучшить" = 50-70 баллов  
-- "хороший ответ", "верно", "правильно" = 70-90 баллов
-- "отличный", "профессионально", "все учтено" = 90-100 баллов
-
-Верни ТОЛЬКО одно число (0-100):"""
+        validation_prompt = self.simulator_prompts.get("evaluation", {}).get("validation_prompt", "").format(
+            initial_score=initial_score,
+            feedback=feedback,
+            user_answer=user_answer
+        )
 
         try:
             validation_result = self._generate_with_llm(validation_prompt)
@@ -385,13 +341,10 @@ FEEDBACK: [текст обратной связи]
         
         question = session.current_question_data
         
-        hint_prompt = f"""Дай краткую подсказку (1-2 предложения) оператору, как лучше ответить на этот вопрос:
-
-ВОПРОС: {question.question}
-
-КОНТЕКСТ: {question.context}
-
-Подсказка должна направить оператора, но не давать готовый ответ."""
+        hint_prompt = self.simulator_prompts.get("hints", {}).get("hint_prompt", "").format(
+            question=question.question,
+            context=question.context
+        )
 
         return self._generate_with_llm(hint_prompt)
     
@@ -429,12 +382,9 @@ FEEDBACK: [текст обратной связи]
     
     def _generate_ai_answer(self, question: str, context: str) -> str:
         """Генерирует эталонный ответ от AI"""
-        prompt = f"""Ты — опытный оператор IT-поддержки. Дай КРАТКИЙ профессиональный ответ (2-3 предложения) на вопрос пользователя.
-
-ВОПРОС: {question}
-
-КОНТЕКСТ ИЗ БЗ: {context}
-
-Ответ должен быть вежливым, структурированным и содержать конкретное решение."""
+        prompt = self.simulator_prompts.get("ai_answers", {}).get("ai_answer_prompt", "").format(
+            question=question,
+            context=context
+        )
 
         return self._generate_with_llm(prompt)

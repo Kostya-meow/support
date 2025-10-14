@@ -17,6 +17,7 @@ callback_map: dict[str, str] = {}
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import tickets_crud as crud, models
+from app.config import load_bot_responses
 from app.rag_service import RAGResult, RAGService
 from app.realtime import ConnectionManager
 from app.schemas import TicketRead, MessageRead
@@ -541,10 +542,11 @@ def create_dispatcher(
             try:
                 if entry:
                     chat_id = query.message.chat.id if query.message else query.from_user.id
-                    user_prompt = (
-                        f"Вопрос из базы: {entry.get('question')}\n"
-                        f"Запись базы (источник): {entry.get('answer')}\n\n"
-                        "Сформируй дружелюбный, понятный пользователю ответ в 2-5 предложениях, сохраняя суть и давая практические шаги, если нужно."
+                    bot_responses = load_bot_responses()
+                    user_prompt_template = bot_responses.get("telegram", {}).get("kb_craft_user_prompt", "")
+                    user_prompt = user_prompt_template.format(
+                        question=entry.get('question', ''),
+                        answer=entry.get('answer', '')
                     )
                     messages_for_llm = [
                         {"role": "system", "content": rag_service.persona_prompt},
@@ -589,17 +591,8 @@ def create_dispatcher(
     async def on_start(message: Message) -> None:
         # При /start всегда отвечаем ботом, заявку не создаем
         user_name = message.from_user.first_name if message.from_user else "пользователь"
-        greeting = (
-            f"👋 Здравствуйте, {user_name}!\n\n"
-            "Я бот технической поддержки. Я могу помочь вам с:\n"
-            "• Ответами на часто задаваемые вопросы\n"
-            "• Решением технических проблем\n"
-            "• Консультацией по функциям системы\n\n"
-            "📚 <b>Популярные вопросы и ответы:</b>\n"
-            "Посмотрите наш FAQ: http://127.0.0.1:8000/faq\n\n"
-            "💬 Просто напишите ваш вопрос, и я постараюсь помочь!\n"
-            "Если мой ответ не подойдет, я смогу подключить оператора."
-        )
+        bot_responses = load_bot_responses()
+        greeting = bot_responses.get("telegram", {}).get("start_greeting", "").format(user_name=user_name)
         formatted_greeting = f"{greeting}"
         await message.answer(formatted_greeting, parse_mode='HTML')
 

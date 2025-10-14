@@ -15,6 +15,7 @@ import json
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import tickets_crud as crud, models
+from app.config import load_bot_responses
 from app.rag_service import RAGResult, RAGService
 from app.realtime import ConnectionManager
 from app.schemas import TicketRead, MessageRead
@@ -547,6 +548,8 @@ def create_vk_bot(
 
     async def _handle_vk_voice_message(user_id: int, attachment: dict, message_id: int):
         """Обрабатывает голосовое сообщение из VK"""
+        bot_responses = load_bot_responses()
+        vk_responses = bot_responses.get("vk", {})
         try:
             logger.info(f"VK: Processing voice message from user {user_id}")
 
@@ -569,15 +572,15 @@ def create_vk_bot(
                             attachment = found
                         else:
                             logger.warning(f"VK: No audio_message attachment found in fetched message {message_id}")
-                            await _send_vk_message(user_id, "❌ Не удалось получить голосовое сообщение.")
+                            await _send_vk_message(user_id, vk_responses.get("voice_processing_error", "❌ Не удалось получить голосовое сообщение."))
                             return
                     else:
                         logger.warning(f"VK: getById returned no items for message {message_id}")
-                        await _send_vk_message(user_id, "❌ Не удалось получить голосовое сообщение.")
+                        await _send_vk_message(user_id, vk_responses.get("voice_processing_error", "❌ Не удалось получить голосовое сообщение."))
                         return
                 except Exception as e:
                     logger.debug(f"VK: Failed to fetch message by id for attachment: {e}")
-                    await _send_vk_message(user_id, "❌ Не удалось получить голосовое сообщение.")
+                    await _send_vk_message(user_id, vk_responses.get("voice_processing_error", "❌ Не удалось получить голосовое сообщение."))
                     return
 
             # НЕ сохраняем placeholder — будем сохранять только расшифровку.
@@ -589,7 +592,8 @@ def create_vk_bot(
             await _send_vk_typing(user_id)
 
             # Уведомляем пользователя о начале обработки
-            processing_msg = "🎤 Обрабатываю голосовое сообщение..."
+            bot_responses = load_bot_responses()
+            processing_msg = bot_responses.get("vk", {}).get("processing_message", "⏳ Обрабатываю ваш запрос...")
             await _send_vk_message(user_id, processing_msg)
 
             # Получаем URL аудио файл (поддерживаем разные варианты полей)
@@ -619,7 +623,7 @@ def create_vk_bot(
                     logger.debug(f"VK: getById extra attempt failed: {e}")
 
             if not audio_url:
-                await _send_vk_message(user_id, "❌ Не удалось получить голосовое сообщение.")
+                await _send_vk_message(user_id, vk_responses.get("voice_processing_error", "❌ Не удалось получить голосовое сообщение."))
                 # Mark placeholder as system note if persisted earlier
                 try:
                     if ticket_id_tmp:
@@ -636,7 +640,7 @@ def create_vk_bot(
             # Скачиваем в отдельном потоке (синхронно)
             response = await asyncio.to_thread(requests.get, audio_url, timeout=20)
             if response.status_code != 200:
-                await _send_vk_message(user_id, "❌ Не удалось скачать голосовое сообщение.")
+                await _send_vk_message(user_id, vk_responses.get("voice_download_error", "❌ Не удалось скачать голосовое сообщение."))
                 return
             
             # Сохраняем во временный файл
@@ -655,7 +659,7 @@ def create_vk_bot(
 
                 if not transcribed_text:
                     # Если распознавание не удалось, уведомляем пользователя и НЕ создаём пустую запись
-                    await _send_vk_message(user_id, "❌ Не удалось распознать речь. Попробуйте еще раз или напишите текстом.")
+                    await _send_vk_message(user_id, vk_responses.get("speech_recognition_error", "❌ Не удалось распознать речь. Попробуйте еще раз или напишите текстом."))
                     return
 
                 # Обрабатываем расшифровку как обычное текстовое сообщение — сохраняем транскрипт
@@ -673,7 +677,7 @@ def create_vk_bot(
                     
         except Exception as e:
             logger.exception(f"VK: Error processing voice message from user {user_id}: {e}")
-            await _send_vk_message(user_id, "❌ Произошла ошибка при обработке голосового сообщения. Попробуйте написать текстом.")
+            await _send_vk_message(user_id, vk_responses.get("voice_general_error", "❌ Произошла ошибка при обработке голосового сообщения. Попробуйте написать текстом."))
 
     async def handle_vk_message(event):
         """Обрабатывает входящее сообщение из VK"""
@@ -712,9 +716,9 @@ def create_vk_bot(
                             if ticket_id:
                                 await _broadcast_tickets()
                             # notify user
-                            await _send_vk_message(user_id, '✅ Оператор будет подключен. Ожидайте ответа.')
+                            await _send_vk_message(user_id, vk_responses.get("operator_connected", "✅ Оператор будет подключен. Ожидайте ответа."))
                         else:
-                            await _send_vk_message(user_id, 'Отмена подключения оператора.')
+                            await _send_vk_message(user_id, vk_responses.get("operator_cancelled", "Отмена подключения оператора."))
                         # We handled the payload action — stop further processing
                         return
             # Case: event.message (some wrappers)
@@ -859,12 +863,7 @@ def create_vk_bot(
                 logger.info(f"VK: User {user_id} requested operator via phrase: {text}")
                 # Instead of creating ticket immediately, send instruction to reply 'да' to call operator
                 avg_response_time = await _get_average_response_time()
-                confirm_text = (
-                    "Хотите связаться с оператором?\n\n"
-                    "Мы создадим заявку и оповестим операторов, как только вы подтвердите запрос.\n\n"
-                    f"⏱ Среднее время ответа: {avg_response_time}\n\n"
-                    "Если хотите подключить оператора — отправьте 'да'."
-                )
+                confirm_text = vk_responses.get("operator_request_confirmation", "").format(avg_response_time=avg_response_time)
                 await _send_vk_message(user_id, confirm_text)
                 # Save a system note in history that user asked to call operator (not creating ticket yet)
                 try:

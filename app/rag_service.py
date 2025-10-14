@@ -224,6 +224,8 @@ class RAGService:
         self.topics_max_len = int(rag_cfg.get("topics_max_len", 30))
         self.topics_system_prompt = rag_cfg.get("topics_system_prompt", "Ты — генератор кратких тем и вопросов для кнопок. На входе — исходный вопрос и ответ ассистента. Верни {count} коротких тезисных тем (не больше {max_len} символов каждая), по одной на строку.")
         self.topics_user_template = rag_cfg.get("topics_user_template", "Вопрос: {question}\nОтвет: {answer}\nСформируй {count} коротких вариантов тем (не больше {max_len} символов) — по одной теме на строку. Только сами короткие заголовки.")
+        self.main_response_template = rag_cfg.get("main_response_template", "Промпт персоны:\n{persona_prompt}\n\nИстория диалога:\n{history_text}\n\nДокументы (название и выдержка):\n{doc_payload}\n\nИспользуя документы и историю, ответь на вопрос пользователя:\n{preprocessed_query}")
+        self.ticket_summary_prompt = rag_cfg.get("ticket_summary_prompt", "Проанализируй переписку в службе поддержки и создай краткое саммари в 1-2 предложения для оператора.\nСаммари должно отражать суть проблемы пользователя и текущий статус обращения.\n\nПереписка:\n{conversation_text}\n\nКраткое саммари:")
         # Temporary storage for topic references when callback_data would be too long
         self._topic_refs: dict[str, str] = {}
 
@@ -614,11 +616,11 @@ class RAGService:
             safe_docs.append({"title": title, "excerpt": excerpt})
         doc_payload = json.dumps(safe_docs, ensure_ascii=False)
 
-        combined_prompt = (
-            f"Промпт персоны:\n{self.persona_prompt}\n\n"
-            f"История диалога:\n{history_text}\n\n"
-            f"Документы (название и выдержка):\n{doc_payload}\n\n"
-            f"Используя документы и историю, ответь на вопрос пользователя:\n{preprocessed_query}"
+        combined_prompt = self.main_response_template.format(
+            persona_prompt=self.persona_prompt,
+            history_text=history_text,
+            doc_payload=doc_payload,
+            preprocessed_query=preprocessed_query
         )
         messages = [
             {"role": "system", "content": self.persona_prompt},
@@ -704,13 +706,7 @@ class RAGService:
         
         conversation_text = "\n".join(conversation)
         
-        summary_prompt = f"""Проанализируй переписку в службе поддержки и создай краткое саммари в 1-2 предложения для оператора.
-Саммари должно отражать суть проблемы пользователя и текущий статус обращения.
-
-Переписка:
-{conversation_text}
-
-Краткое саммари:"""
+        summary_prompt = self.ticket_summary_prompt.format(conversation_text=conversation_text)
 
         try:
             response = self.llm_client.chat.completions.create(
