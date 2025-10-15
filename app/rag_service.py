@@ -256,6 +256,20 @@ class RAGService:
     def reset_history(self, conversation_id: int) -> None:
         self.histories.pop(conversation_id, None)
 
+    def _normalize_user_key(self, user_key: Any) -> Any:
+        """Normalize conversation/user keys so that 'vk_123' and 123 map to the same key (int 123) when possible."""
+        try:
+            if isinstance(user_key, str):
+                if '_' in user_key:
+                    suffix = user_key.split('_', 1)[1]
+                    if suffix.isdigit():
+                        return int(suffix)
+                if user_key.isdigit():
+                    return int(user_key)
+        except Exception:
+            pass
+        return user_key
+
     def _load_documents(self, entries: Iterable[Any]) -> None:
         documents: list[dict[str, str]] = []
         vectors: list[np.ndarray] = []
@@ -354,14 +368,17 @@ class RAGService:
         return docs
 
     def _format_history(self, conversation_id: int) -> str:
-        history = self.histories.get(conversation_id, [])
-        if not history:
+        # Use chat_histories (where add_chat_message writes messages) so the LLM sees recent chat
+        key = self._normalize_user_key(conversation_id)
+        history_msgs = self.chat_histories.get(key, [])
+        if not history_msgs:
             return "История пуста."
-        relevant = history[-self.history_window * 2 :]
-        parts = []
-        for entry in relevant:
-            role = "Пользователь" if entry["role"] == "user" else "Ассистент"
-            parts.append(f"{role}: {entry['content']}")
+        # take last N messages (history_window pairs -> window*2 messages)
+        relevant = history_msgs[-(self.history_window * 2) :]
+        parts: list[str] = []
+        for msg in relevant:
+            role = "Пользователь" if msg.is_user else "Ассистент"
+            parts.append(f"{role}: {msg.message}")
         return "\n".join(parts)
 
     def _apply_filter(self, user_query: str) -> tuple[str, dict[str, Any]]:
@@ -631,6 +648,7 @@ class RAGService:
         cleaned_raw = re.sub(r"doc_\d+", "", final_answer_raw)
         cleaned_raw = re.sub(r"\[doc_\d+\]", "", cleaned_raw)
         final_answer, eval_score = self._evaluate_answer(cleaned_raw, history_text)
+        # Greeting suppression is handled via persona prompt; do not post-process greetings here.
         filter_info["evaluation_probability"] = eval_score
         self._store_history(conversation_id, preprocessed_query, final_answer)
         
