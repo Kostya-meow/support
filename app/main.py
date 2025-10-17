@@ -28,28 +28,26 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import models, tickets_crud as crud
 from app import auth
 from app.bots import create_dispatcher, start_bot, create_vk_bot, start_vk_bot
 from app.config import load_rag_config, load_app_config
-from app.database import (
+from app.db import (
+    models,
+    tickets_crud as crud,
     get_tickets_session,
     get_knowledge_session,
     init_db,
     TicketsSessionLocal,
     KnowledgeSessionLocal,
     get_session,
-)
-from app.rag import RAGService, KnowledgeBase
-from app.realtime import ConnectionManager
-from app.schemas import (
     TicketRead,
     KnowledgeStats,
     MessageCreate,
     MessageRead,
     ConversationRead,
 )
-from app.simulator_service import SimulatorService
+from app.rag import RAGService, KnowledgeBase
+from app.services import ConnectionManager, SimulatorService
 from app.auth import require_permission, require_admin, get_user_permissions
 
 logger = logging.getLogger(__name__)
@@ -118,7 +116,7 @@ async def _broadcast_conversations_update(
 async def update_popularity_scores():
     """Фоновая задача для обновления популярности вопросов каждые 5 минут"""
     from sqlalchemy import select, text
-    from app.models import KnowledgeEntry, Message
+    from app.db.models import KnowledgeEntry, Message
     from datetime import datetime, timedelta
     import numpy as np
     from sentence_transformers import SentenceTransformer
@@ -483,7 +481,7 @@ async def faq_page(request: Request):
 async def get_faq(session: AsyncSession = Depends(get_knowledge_session)):
     """API для получения всех вопросов отсортированных по популярности"""
     from sqlalchemy import select, desc
-    from app.models import KnowledgeEntry
+    from app.db.models import KnowledgeEntry
 
     # Получаем все записи, отсортированные по популярности
     stmt = select(KnowledgeEntry).order_by(desc(KnowledgeEntry.popularity_score))
@@ -509,7 +507,7 @@ async def get_faq(session: AsyncSession = Depends(get_knowledge_session)):
 async def search_faq(q: str, session: AsyncSession = Depends(get_knowledge_session)):
     """Поиск вопросов в FAQ по векторным embeddings"""
     from sqlalchemy import select
-    from app.models import KnowledgeEntry
+    from app.db.models import KnowledgeEntry
     import numpy as np
 
     if not q or len(q.strip()) < 2:

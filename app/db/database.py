@@ -27,7 +27,7 @@ KnowledgeSessionLocal = async_sessionmaker(knowledge_engine, expire_on_commit=Fa
 
 async def init_db() -> None:
     """Создание таблиц баз данных при запуске приложения."""
-    from app.models import Base, KnowledgeBase
+    from app.db.models import Base, KnowledgeBase
 
     # Создаем таблицы для заявок
     async with tickets_engine.begin() as conn:

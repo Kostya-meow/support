@@ -399,7 +399,7 @@ class SimulatorService:
         try:
             # Используем KnowledgeBase для поиска в БЗ
             from app.rag import KnowledgeBase
-            from app.database import KnowledgeSessionLocal
+            from app.db import KnowledgeSessionLocal
 
             kb = KnowledgeBase(KnowledgeSessionLocal)
             await kb.ensure_loaded()

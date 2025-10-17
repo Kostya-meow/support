@@ -24,8 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app import tickets_crud as crud, models
 from app.config import load_telegram_responses
 from app.rag import RAGResult, RAGService
-from app.realtime import ConnectionManager
-from app.schemas import TicketRead, MessageRead
+from app.services import ConnectionManager
+from app.db import TicketRead, MessageRead
 
 logger = logging.getLogger(__name__)
 

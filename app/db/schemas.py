@@ -5,7 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models import TicketStatus
+from app.db.models import TicketStatus
 
 
 class TicketRead(BaseModel):
@@ -23,11 +23,12 @@ class TicketRead(BaseModel):
     unread_count: int = 0  # Количество непрочитанных сообщений
 
     model_config = ConfigDict(from_attributes=True)
-    
+
     @property
     def is_archived(self) -> bool:
         """Проверяет, является ли заявка архивной"""
-        from app.models import TicketStatus
+        from app.db.models import TicketStatus
+
         return self.status in [TicketStatus.CLOSED, TicketStatus.ARCHIVED]
 
     @property
@@ -48,7 +49,7 @@ class MessageRead(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-    
+
     # Для обратной совместимости с API
     @property
     def conversation_id(self) -> int:
@@ -66,15 +67,15 @@ class KnowledgeStats(BaseModel):
 # Обратная совместимость
 class ConversationRead(TicketRead):
     """Для обратной совместимости с API."""
-    
+
     @property
     def operator_requested(self) -> bool:
         return self.status in [TicketStatus.OPEN, TicketStatus.IN_PROGRESS]
-    
+
     @property
     def unread_count(self) -> int:
         return 0  # Пока не реализуем подсчет непрочитанных
-    
+
     @property
     def is_archived(self) -> bool:
         return self.status == TicketStatus.ARCHIVED

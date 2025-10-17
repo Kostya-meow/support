@@ -6,7 +6,7 @@ from typing import Iterable, Optional
 from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import models
+from app.db import models
 
 
 async def get_conversation_by_chat_id(
@@ -14,7 +14,9 @@ async def get_conversation_by_chat_id(
     telegram_chat_id: int,
 ) -> Optional[models.Conversation]:
     result = await session.execute(
-        select(models.Conversation).where(models.Conversation.telegram_chat_id == telegram_chat_id)
+        select(models.Conversation).where(
+            models.Conversation.telegram_chat_id == telegram_chat_id
+        )
     )
     return result.scalar_one_or_none()
 
@@ -40,7 +42,7 @@ async def list_conversations(
     stmt = select(models.Conversation).order_by(models.Conversation.updated_at.desc())
     if operator_requested_only:
         stmt = stmt.where(models.Conversation.operator_requested.is_(True))
-    
+
     stmt = stmt.where(models.Conversation.is_archived.is_(archived))
     result = await session.execute(stmt)
     return result.scalars().all()
@@ -79,7 +81,7 @@ async def add_message(
     conversation = await session.get(models.Conversation, conversation_id)
     if conversation:
         conversation.updated_at = datetime.utcnow()
-        if sender != 'operator':
+        if sender != "operator":
             conversation.unread_count = (conversation.unread_count or 0) + 1
     await session.commit()
     await session.refresh(message)
@@ -99,7 +101,9 @@ async def set_operator_requested(
         conversation.updated_at = datetime.utcnow()
         if not requested:
             conversation.unread_count = 0
-            conversation.is_archived = True  # Автоматически архивируем завершенные диалоги
+            conversation.is_archived = (
+                True  # Автоматически архивируем завершенные диалоги
+            )
         await session.commit()
         await session.refresh(conversation)
     return conversation
@@ -121,7 +125,9 @@ async def set_archived_status(
     return conversation
 
 
-async def reset_unread(session: AsyncSession, conversation_id: int) -> Optional[models.Conversation]:
+async def reset_unread(
+    session: AsyncSession, conversation_id: int
+) -> Optional[models.Conversation]:
     conversation = await session.get(models.Conversation, conversation_id)
     if conversation is None:
         return None
@@ -147,12 +153,15 @@ async def replace_knowledge_entries(
 
 
 async def load_knowledge_entries(session: AsyncSession) -> list[models.KnowledgeEntry]:
-    result = await session.execute(select(models.KnowledgeEntry).order_by(models.KnowledgeEntry.id))
+    result = await session.execute(
+        select(models.KnowledgeEntry).order_by(models.KnowledgeEntry.id)
+    )
     return result.scalars().all()
 
 
 async def count_knowledge_entries(session: AsyncSession) -> int:
-    result = await session.execute(select(func.count()).select_from(models.KnowledgeEntry))
+    result = await session.execute(
+        select(func.count()).select_from(models.KnowledgeEntry)
+    )
     count = result.scalar_one()
     return int(count or 0)
-
