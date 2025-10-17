@@ -33,25 +33,26 @@ def _tokenize(text: str) -> list[str]:
     return re.findall(r"\w+", text.lower())
 
 
-
-
 def _parse_float(text: str) -> float | None:
     match = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", text)
     return float(match.group()) if match else None
-def _preprocess(text: str, removal: set[str] | None = None) -> str:
+
+
+def _preprocess(text: str) -> str:
+    """Простая очистка текста от лишних символов"""
     cleaned = re.sub(r"[^\w\s?!]", " ", text)
     words = cleaned.split()
-    if removal:
-        words = [w for w in words if w.lower() not in removal]
     return " ".join(words)
 
 
 @dataclass
 class ChatMessage:
     """Сообщение в чате для временного хранения"""
+
     message: str
     is_user: bool
     timestamp: datetime
+
 
 @dataclass
 class RAGResult:
@@ -64,11 +65,15 @@ class RAGResult:
 class ToxicityClassifier:
     def __init__(self, model_path: str, device: str = "cpu") -> None:
         if device == "cuda" and not torch.cuda.is_available():
-            logger.warning("CUDA requested for toxicity model but not available. Falling back to CPU.")
+            logger.warning(
+                "CUDA requested for toxicity model but not available. Falling back to CPU."
+            )
             device = "cpu"
         self.device = torch.device(device)
         self.tokenizer = BertTokenizer.from_pretrained(model_path)
-        self.model = BertForSequenceClassification.from_pretrained(model_path).to(self.device)
+        self.model = BertForSequenceClassification.from_pretrained(model_path).to(
+            self.device
+        )
 
     def infer(self, text: str) -> float:
         inputs = self.tokenizer.encode(text, return_tensors="pt").to(self.device)
@@ -83,22 +88,26 @@ class SpeechToTextService:
     def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
         """Инициализация сервиса speech-to-text"""
         import speech_recognition as sr
+
         self.recognizer = sr.Recognizer()
-    
-    async def transcribe_audio(self, audio_file_path: str, language: str = "ru-RU") -> str:
+
+    async def transcribe_audio(
+        self, audio_file_path: str, language: str = "ru-RU"
+    ) -> str:
         """
         Преобразование аудио в текст с помощью Google Speech Recognition
-        
+
         Args:
             audio_file_path: Путь к аудио файлу
             language: Язык аудио (по умолчанию русский)
-            
+
         Returns:
             Транскрибированный текст
         """
         import speech_recognition as sr
         import tempfile
         import os
+
         wav_file_path = None
         try:
             # Попытка прямого чтения (если вдруг WAV)
@@ -108,30 +117,48 @@ class SpeechToTextService:
                 text = self.recognizer.recognize_google(audio_data, language=language)
                 return text.strip()
             except Exception as direct_error:
-                logger.info(f"Direct read failed: {direct_error}, пробуем конвертацию через ffmpeg...")
+                logger.info(
+                    f"Direct read failed: {direct_error}, пробуем конвертацию через ffmpeg..."
+                )
                 # Конвертация через ffmpeg (imageio_ffmpeg)
                 try:
                     import imageio_ffmpeg
+
                     ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
                 except Exception as ffmpeg_err:
                     logger.error(f"FFmpeg not found: {ffmpeg_err}")
                     return "Для распознавания голосовых сообщений требуется ffmpeg. Попробуйте отправить текст или WAV-файл."
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as wav_temp:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".wav", delete=False
+                ) as wav_temp:
                     wav_file_path = wav_temp.name
                 ffmpeg_cmd = [
-                    ffmpeg_path, '-y', '-i', audio_file_path,
-                    '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
-                    wav_file_path
+                    ffmpeg_path,
+                    "-y",
+                    "-i",
+                    audio_file_path,
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    wav_file_path,
                 ]
                 import subprocess
+
                 result = subprocess.run(ffmpeg_cmd, capture_output=True)
                 if result.returncode != 0:
-                    logger.error(f"FFmpeg conversion failed: {result.stderr.decode(errors='ignore')}")
+                    logger.error(
+                        f"FFmpeg conversion failed: {result.stderr.decode(errors='ignore')}"
+                    )
                     return "Ошибка конвертации аудио. Попробуйте записать голосовое снова или отправьте текст."
                 try:
                     with sr.AudioFile(wav_file_path) as source:
                         audio_data = self.recognizer.record(source)
-                    text = self.recognizer.recognize_google(audio_data, language=language)
+                    text = self.recognizer.recognize_google(
+                        audio_data, language=language
+                    )
                     return text.strip()
                 except Exception as recog_error:
                     logger.error(f"SpeechRecognition error after ffmpeg: {recog_error}")
@@ -174,7 +201,9 @@ class RAGService:
         self.strip_thinking_tags_enabled = llm_cfg.get("strip_thinking_tags", False)
 
         if not self.llm_model:
-            raise ValueError("LLM model name must be provided in config.llm.model or via environment variable LLM_MODEL")
+            raise ValueError(
+                "LLM model name must be provided in config.llm.model or via environment variable LLM_MODEL"
+            )
 
         client_kwargs: dict[str, str] = {"api_key": api_key or "EMPTY"}
         if base_url:
@@ -182,9 +211,13 @@ class RAGService:
         self.llm_client = OpenAI(**client_kwargs)
 
         embedding_cfg = config.get("embeddings", {})
-        embedding_model_name = embedding_cfg.get("model_name", "ai-forever/sbert_large_nlu_ru")
+        embedding_model_name = embedding_cfg.get(
+            "model_name", "ai-forever/sbert_large_nlu_ru"
+        )
         embedding_device = embedding_cfg.get("device", "cpu")
-        self.embedder = SentenceTransformer(embedding_model_name, device=embedding_device)
+        self.embedder = SentenceTransformer(
+            embedding_model_name, device=embedding_device
+        )
 
         toxicity_cfg = config.get("toxicity", {})
         tox_model = toxicity_cfg.get("model_path")
@@ -212,30 +245,43 @@ class RAGService:
         self.persona_prompt = rag_cfg.get("persona_prompt", "")
         self.operator_intent_prompt = rag_cfg.get("operator_intent_prompt", "")
 
-        self.filter_classification_error_message = rag_cfg.get("filter_classification_error_message", [])
+        self.filter_classification_error_message = rag_cfg.get(
+            "filter_classification_error_message", []
+        )
         self.filter_threshold_message = rag_cfg.get("filter_threshold_message", [])
         self.toxicity_filter_message = rag_cfg.get("toxicity_filter_message", [])
         self.operator_intent_message = rag_cfg.get("operator_intent_message", [])
         self.evaluation_failure_message = rag_cfg.get("evaluation_failure_message", [])
-        self.removal_list = set(rag_cfg.get("removal_list", []))
 
         # Topics / related quick-questions (UI buttons)
         self.topics_count = int(rag_cfg.get("topics_count", 3))
         self.topics_max_len = int(rag_cfg.get("topics_max_len", 30))
-        self.topics_system_prompt = rag_cfg.get("topics_system_prompt", "Ты — генератор кратких тем и вопросов для кнопок. На входе — исходный вопрос и ответ ассистента. Верни {count} коротких тезисных тем (не больше {max_len} символов каждая), по одной на строку.")
-        self.topics_user_template = rag_cfg.get("topics_user_template", "Вопрос: {question}\nОтвет: {answer}\nСформируй {count} коротких вариантов тем (не больше {max_len} символов) — по одной теме на строку. Только сами короткие заголовки.")
-        self.main_response_template = rag_cfg.get("main_response_template", "Промпт персоны:\n{persona_prompt}\n\nИстория диалога:\n{history_text}\n\nДокументы (название и выдержка):\n{doc_payload}\n\nИспользуя документы и историю, ответь на вопрос пользователя:\n{preprocessed_query}")
-        self.ticket_summary_prompt = rag_cfg.get("ticket_summary_prompt", "Проанализируй переписку в службе поддержки и создай краткое саммари в 1-2 предложения для оператора.\nСаммари должно отражать суть проблемы пользователя и текущий статус обращения.\n\nПереписка:\n{conversation_text}\n\nКраткое саммари:")
+        self.topics_system_prompt = rag_cfg.get(
+            "topics_system_prompt",
+            "Ты — генератор кратких тем и вопросов для кнопок. На входе — исходный вопрос и ответ ассистента. Верни {count} коротких тезисных тем (не больше {max_len} символов каждая), по одной на строку.",
+        )
+        self.topics_user_template = rag_cfg.get(
+            "topics_user_template",
+            "Вопрос: {question}\nОтвет: {answer}\nСформируй {count} коротких вариантов тем (не больше {max_len} символов) — по одной теме на строку. Только сами короткие заголовки.",
+        )
+        self.main_response_template = rag_cfg.get(
+            "main_response_template",
+            "Промпт персоны:\n{persona_prompt}\n\nИстория диалога:\n{history_text}\n\nДокументы (название и выдержка):\n{doc_payload}\n\nИспользуя документы и историю, ответь на вопрос пользователя:\n{preprocessed_query}",
+        )
+        self.ticket_summary_prompt = rag_cfg.get(
+            "ticket_summary_prompt",
+            "Проанализируй переписку в службе поддержки и создай краткое саммари в 1-2 предложения для оператора.\nСаммари должно отражать суть проблемы пользователя и текущий статус обращения.\n\nПереписка:\n{conversation_text}\n\nКраткое саммари:",
+        )
         # Temporary storage for topic references when callback_data would be too long
         self._topic_refs: dict[str, str] = {}
 
         self.histories: dict[int, list[dict[str, str]]] = defaultdict(list)
         # Хранение временной истории чатов (до создания заявки)
         self.chat_histories: dict[int, list[ChatMessage]] = defaultdict(list)
-        
+
         # Инициализация Speech-to-Text сервиса
         self.speech_to_text = SpeechToTextService(api_key=api_key, base_url=base_url)
-        
+
         # Кеш для саммари тикетов (простой in-memory кеш)
         self._summary_cache: dict[int, str] = {}
 
@@ -260,8 +306,8 @@ class RAGService:
         """Normalize conversation/user keys so that 'vk_123' and 123 map to the same key (int 123) when possible."""
         try:
             if isinstance(user_key, str):
-                if '_' in user_key:
-                    suffix = user_key.split('_', 1)[1]
+                if "_" in user_key:
+                    suffix = user_key.split("_", 1)[1]
                     if suffix.isdigit():
                         return int(suffix)
                 if user_key.isdigit():
@@ -278,18 +324,20 @@ class RAGService:
             question = entry.question.strip()
             answer = entry.answer.strip()
             content = f"Вопрос: {question}\nОтвет: {answer}"
-            documents.append({
-                "id": idx,
-                "question": question,
-                "answer": answer,
-                "content": content,
-            })
-            
+            documents.append(
+                {
+                    "id": idx,
+                    "question": question,
+                    "answer": answer,
+                    "content": content,
+                }
+            )
+
             # Пропускаем записи без embedding'ов
             if entry.embedding is not None:
                 vec = np.frombuffer(entry.embedding, dtype=np.float32)
                 vectors.append(vec)
-            
+
             bm25_corpus.append(_tokenize(content))
         if not documents:
             self._documents = []
@@ -297,9 +345,11 @@ class RAGService:
             self._faiss_index = None
             self._bm25 = None
             self._bm25_corpus = []
-            logger.warning("Knowledge base is empty; RAG answers will fallback to default message.")
+            logger.warning(
+                "Knowledge base is empty; RAG answers will fallback to default message."
+            )
             return
-        
+
         self._documents = documents
         # Если нет векторов (все embedding'и NULL), создаем только BM25 индекс
         if not vectors:
@@ -313,12 +363,17 @@ class RAGService:
             index.add(matrix)
             self._faiss_matrix = matrix
             self._faiss_index = index
-        
+
         self._bm25_corpus = bm25_corpus
         self._bm25 = BM25Okapi(bm25_corpus)
         logger.info("Loaded %s knowledge documents for RAG", len(documents))
 
-    def _call_llm(self, messages: list[dict[str, str]], temperature: float = 0.0, max_tokens: int = 512) -> str:
+    def _call_llm(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.0,
+        max_tokens: int = 512,
+    ) -> str:
         response = self.llm_client.chat.completions.create(
             model=self.llm_model,
             messages=messages,
@@ -338,9 +393,17 @@ class RAGService:
     def _retrieve_documents(self, query: str) -> list[dict[str, str]]:
         if not self._documents or self._faiss_index is None:
             return []
-        query_vector = self.embedder.encode([query], convert_to_numpy=True, normalize_embeddings=True)[0].astype("float32")
-        distances, indices = self._faiss_index.search(query_vector.reshape(1, -1), min(self.top_n, len(self._documents)))
-        selected = {int(idx): float(distances[0][pos]) for pos, idx in enumerate(indices[0]) if idx != -1}
+        query_vector = self.embedder.encode(
+            [query], convert_to_numpy=True, normalize_embeddings=True
+        )[0].astype("float32")
+        distances, indices = self._faiss_index.search(
+            query_vector.reshape(1, -1), min(self.top_n, len(self._documents))
+        )
+        selected = {
+            int(idx): float(distances[0][pos])
+            for pos, idx in enumerate(indices[0])
+            if idx != -1
+        }
 
         if self._bm25 is not None and self._bm25_corpus:
             bm25_scores = self._bm25.get_scores(_tokenize(query))
@@ -360,10 +423,12 @@ class RAGService:
                 break
             # Do NOT expose internal doc identifiers to the LLM or user-facing text.
             # Provide only a human-friendly title and content.
-            docs.append({
-                "title": doc["question"][:80] or "Документ",
-                "content": doc["content"],
-            })
+            docs.append(
+                {
+                    "title": doc["question"][:80] or "Документ",
+                    "content": doc["content"],
+                }
+            )
             total_tokens += token_count
         return docs
 
@@ -393,15 +458,23 @@ class RAGService:
             score_str = self._call_llm(messages, temperature=0.0, max_tokens=64)
             score = _parse_float(score_str)
             if score is None:
-                raise ValueError(f'Could not parse filter score from: {score_str!r}')
+                raise ValueError(f"Could not parse filter score from: {score_str!r}")
             details["filter_probability"] = score
         except Exception as exc:
             logger.exception("Filter classification failed: %s", exc)
-            message = random.choice(self.filter_classification_error_message) if self.filter_classification_error_message else "Не удалось классифицировать запрос."
+            message = (
+                random.choice(self.filter_classification_error_message)
+                if self.filter_classification_error_message
+                else "Не удалось классифицировать запрос."
+            )
             return message, details
         filter_score = details["filter_probability"]
         if filter_score > self.filter_threshold:
-            message = random.choice(self.filter_threshold_message) if self.filter_threshold_message else "Запрос не по теме."
+            message = (
+                random.choice(self.filter_threshold_message)
+                if self.filter_threshold_message
+                else "Запрос не по теме."
+            )
             return message, details
         return "", details
 
@@ -416,7 +489,7 @@ class RAGService:
             score_str = self._call_llm(messages, temperature=0.0, max_tokens=64)
             score = _parse_float(score_str)
             if score is None:
-                raise ValueError(f'Could not parse operator score from: {score_str!r}')
+                raise ValueError(f"Could not parse operator score from: {score_str!r}")
         except Exception as exc:
             logger.exception("Operator intent classification failed: %s", exc)
             score = 0.0
@@ -433,16 +506,24 @@ class RAGService:
             score_str = self._call_llm(messages, temperature=0.0, max_tokens=64)
             score = _parse_float(score_str)
             if score is None:
-                raise ValueError(f'Could not parse evaluation score from: {score_str!r}')
+                raise ValueError(
+                    f"Could not parse evaluation score from: {score_str!r}"
+                )
         except Exception as exc:
             logger.exception("Evaluation failed: %s", exc)
             score = math.inf
         if score > self.output_threshold:
-            failure_message = random.choice(self.evaluation_failure_message) if self.evaluation_failure_message else "Ответ не прошёл проверку."
+            failure_message = (
+                random.choice(self.evaluation_failure_message)
+                if self.evaluation_failure_message
+                else "Ответ не прошёл проверку."
+            )
             return failure_message, score
         return answer, score
 
-    def _store_history(self, conversation_id: int, user_text: str, answer_text: str) -> None:
+    def _store_history(
+        self, conversation_id: int, user_text: str, answer_text: str
+    ) -> None:
         history = self.histories[conversation_id]
         history.append({"role": "user", "content": user_text})
         history.append({"role": "assistant", "content": answer_text})
@@ -454,14 +535,16 @@ class RAGService:
     def add_chat_message(self, user_id: int, message: str, is_user: bool):
         """Добавляет сообщение в историю чата"""
         chat_message = ChatMessage(
-            message=message,
-            is_user=is_user,
-            timestamp=datetime.now()
+            message=message, is_user=is_user, timestamp=datetime.now()
         )
         self.chat_histories[user_id].append(chat_message)
         sender_type = "USER" if is_user else "BOT"
-        print(f"RAG DEBUG: Added message to user {user_id}: [{sender_type}] {message[:50]}...")
-        print(f"RAG DEBUG: Total messages for user {user_id}: {len(self.chat_histories[user_id])}")
+        print(
+            f"RAG DEBUG: Added message to user {user_id}: [{sender_type}] {message[:50]}..."
+        )
+        print(
+            f"RAG DEBUG: Total messages for user {user_id}: {len(self.chat_histories[user_id])}"
+        )
 
     def add_to_history(self, conversation_id: str, message: str, is_user: bool):
         """Добавляет сообщение в историю чата для VK/Telegram ботов"""
@@ -472,7 +555,9 @@ class RAGService:
                 user_id = int(user_id_str)
                 self.add_chat_message(user_id, message, is_user)
             except ValueError:
-                print(f"RAG DEBUG: Failed to parse user_id from conversation_id: {conversation_id}")
+                print(
+                    f"RAG DEBUG: Failed to parse user_id from conversation_id: {conversation_id}"
+                )
         else:
             # Если conversation_id это просто число
             try:
@@ -488,64 +573,90 @@ class RAGService:
     def get_chat_history_since_last_ticket(self, user_id: int) -> list[ChatMessage]:
         """Получает историю чата с момента последнего закрытия заявки или с начала"""
         history = self.chat_histories[user_id]
-        print(f"RAG DEBUG: Getting chat history for user {user_id}, total messages: {len(history)}")
-        logging.info(f"Getting chat history for user {user_id}, total messages: {len(history)}")
-        
+        print(
+            f"RAG DEBUG: Getting chat history for user {user_id}, total messages: {len(history)}"
+        )
+        logging.info(
+            f"Getting chat history for user {user_id}, total messages: {len(history)}"
+        )
+
         # Показываем всю историю для отладки
         print(f"RAG DEBUG: Full history for user {user_id}:")
         for i, msg in enumerate(history):
             sender_type = "USER" if msg.is_user else "BOT"
             print(f"  {i+1}. [{sender_type}] {msg.message[:80]}...")
-        
+
         # Ищем последнее системное сообщение о закрытии заявки
         last_closure_index = -1
         for i in range(len(history) - 1, -1, -1):
             msg = history[i]
-            if not msg.is_user and any(phrase in msg.message.lower() for phrase in [
-                "завершил заявку", "заявка завершена", "если потребуется помощь"
-            ]):
+            if not msg.is_user and any(
+                phrase in msg.message.lower()
+                for phrase in [
+                    "завершил заявку",
+                    "заявка завершена",
+                    "если потребуется помощь",
+                ]
+            ):
                 last_closure_index = i
-                print(f"RAG DEBUG: Found last ticket closure at index {i}: {msg.message[:50]}...")
-                logging.info(f"Found last ticket closure at index {i}: {msg.message[:50]}...")
+                print(
+                    f"RAG DEBUG: Found last ticket closure at index {i}: {msg.message[:50]}..."
+                )
+                logging.info(
+                    f"Found last ticket closure at index {i}: {msg.message[:50]}..."
+                )
                 break
-        
+
         # Если нашли закрытие заявки, берем сообщения после него
         if last_closure_index >= 0:
-            relevant_history = history[last_closure_index + 1:]
-            print(f"RAG DEBUG: Using history after closure: {len(relevant_history)} messages")
-            logging.info(f"Using history after closure: {len(relevant_history)} messages")
+            relevant_history = history[last_closure_index + 1 :]
+            print(
+                f"RAG DEBUG: Using history after closure: {len(relevant_history)} messages"
+            )
+            logging.info(
+                f"Using history after closure: {len(relevant_history)} messages"
+            )
         else:
             # Если не было закрытий, берем всю историю
             relevant_history = history
-            print(f"RAG DEBUG: No previous closures found, using full history: {len(relevant_history)} messages")
-            logging.info(f"No previous closures found, using full history: {len(relevant_history)} messages")
-        
+            print(
+                f"RAG DEBUG: No previous closures found, using full history: {len(relevant_history)} messages"
+            )
+            logging.info(
+                f"No previous closures found, using full history: {len(relevant_history)} messages"
+            )
+
         # Фильтруем служебные команды и системные сообщения
         filtered_history = []
         for msg in relevant_history:
             # Пропускаем служебные команды
-            if msg.is_user and msg.message.startswith('/'):
+            if msg.is_user and msg.message.startswith("/"):
                 print(f"RAG DEBUG: Filtering out command: {msg.message}")
                 logging.debug(f"Filtering out command: {msg.message}")
                 continue
             # Пропускаем системные сообщения о создании заявки
-            if not msg.is_user and any(phrase in msg.message.lower() for phrase in [
-                "уведомили оператора", "ожидайте ответа", "мы уведомили"
-            ]):
+            if not msg.is_user and any(
+                phrase in msg.message.lower()
+                for phrase in ["уведомили оператора", "ожидайте ответа", "мы уведомили"]
+            ):
                 print(f"RAG DEBUG: Filtering out system message: {msg.message[:30]}...")
                 logging.debug(f"Filtering out system message: {msg.message[:30]}...")
                 continue
             filtered_history.append(msg)
-        
-        print(f"RAG DEBUG: Final filtered history for user {user_id}: {len(filtered_history)} messages")
-        logging.info(f"Final filtered history for user {user_id}: {len(filtered_history)} messages")
-        
+
+        print(
+            f"RAG DEBUG: Final filtered history for user {user_id}: {len(filtered_history)} messages"
+        )
+        logging.info(
+            f"Final filtered history for user {user_id}: {len(filtered_history)} messages"
+        )
+
         # Показываем финальную отфильтрованную историю
         print(f"RAG DEBUG: Final filtered messages:")
         for i, msg in enumerate(filtered_history):
             sender_type = "USER" if msg.is_user else "BOT"
             print(f"  {i+1}. [{sender_type}] {msg.message[:80]}...")
-        
+
         return filtered_history
 
     def mark_ticket_created(self, user_id: int):
@@ -557,7 +668,7 @@ class RAGService:
         """Отмечает момент закрытия заявки"""
         # Добавляем специальное сообщение-маркер о закрытии заявки
         # Это поможет при следующем создании заявки найти точку сегментации
-        closure_message = "Оператор завершил заявку. Если потребуется помощь, напишите снова или нажмите кнопку \"Позвать оператора\"."
+        closure_message = 'Оператор завершил заявку. Если потребуется помощь, напишите снова или нажмите кнопку "Позвать оператора".'
         self.add_chat_message(user_id, closure_message, is_user=False)
 
     def clear_chat_history(self, user_id: int):
@@ -566,11 +677,15 @@ class RAGService:
             del self.chat_histories[user_id]
 
     def generate_reply(self, conversation_id: int, user_message: str) -> RAGResult:
-        print(f"RAG DEBUG: generate_reply called for user {conversation_id}, message: {user_message[:50]}...")
+        print(
+            f"RAG DEBUG: generate_reply called for user {conversation_id}, message: {user_message[:50]}..."
+        )
         filter_info: dict[str, Any] = {}
         query = user_message.strip()
         if not query:
-            return RAGResult("Пока не вижу вопроса. Напишите подробнее?", False, filter_info, 0.0)
+            return RAGResult(
+                "Пока не вижу вопроса. Напишите подробнее?", False, filter_info, 0.0
+            )
 
         # Сохраняем сообщение пользователя в историю чата
         try:
@@ -583,7 +698,11 @@ class RAGService:
         toxicity_prob = self._check_toxicity(query)
         filter_info["toxicity_probability"] = toxicity_prob
         if toxicity_prob > self.toxicity_threshold:
-            message = random.choice(self.toxicity_filter_message) if self.toxicity_filter_message else "Сообщение слишком резкое. Переформулируйте, пожалуйста."
+            message = (
+                random.choice(self.toxicity_filter_message)
+                if self.toxicity_filter_message
+                else "Сообщение слишком резкое. Переформулируйте, пожалуйста."
+            )
             # Сохраняем ответ бота в историю чата
             try:
                 self.add_chat_message(conversation_id, message, is_user=False)
@@ -593,7 +712,7 @@ class RAGService:
                 logging.warning(f"Failed to save bot message to chat history: {e}")
             return RAGResult(message, False, filter_info, 0.0)
 
-        preprocessed_query = _preprocess(query, self.removal_list)
+        preprocessed_query = _preprocess(query)
         filter_error, filter_details = self._apply_filter(preprocessed_query)
         filter_info.update(filter_details)
         if filter_error:
@@ -607,7 +726,11 @@ class RAGService:
         operator_flag, operator_score = self._check_operator_intent(preprocessed_query)
         filter_info["operator_probability"] = operator_score
         if operator_flag:
-            message = random.choice(self.operator_intent_message) if self.operator_intent_message else "Могу подключить оператора."
+            message = (
+                random.choice(self.operator_intent_message)
+                if self.operator_intent_message
+                else "Могу подключить оператора."
+            )
             self._store_history(conversation_id, preprocessed_query, message)
             # Сохраняем ответ бота в историю чата
             try:
@@ -620,16 +743,18 @@ class RAGService:
         if not documents:
             message = "Не нашла инструкций по этому вопросу. Попробуйте уточнить или попросите оператора."
             self._store_history(conversation_id, preprocessed_query, message)
-            return RAGResult(message, False, filter_info, 1.0)  # Высокий score = низкая уверенность
+            return RAGResult(
+                message, False, filter_info, 1.0
+            )  # Высокий score = низкая уверенность
 
         history_text = self._format_history(conversation_id)
         # Build a clean, human-readable documents payload (titles + short excerpts)
         safe_docs = []
         for d in documents:
-            title = d.get('title') or 'Документ'
-            content = d.get('content') or ''
+            title = d.get("title") or "Документ"
+            content = d.get("content") or ""
             # Truncate content to a reasonable length for the prompt
-            excerpt = ' '.join(content.split()[:120])
+            excerpt = " ".join(content.split()[:120])
             safe_docs.append({"title": title, "excerpt": excerpt})
         doc_payload = json.dumps(safe_docs, ensure_ascii=False)
 
@@ -637,7 +762,7 @@ class RAGService:
             persona_prompt=self.persona_prompt,
             history_text=history_text,
             doc_payload=doc_payload,
-            preprocessed_query=preprocessed_query
+            preprocessed_query=preprocessed_query,
         )
         messages = [
             {"role": "system", "content": self.persona_prompt},
@@ -651,7 +776,7 @@ class RAGService:
         # Greeting suppression is handled via persona prompt; do not post-process greetings here.
         filter_info["evaluation_probability"] = eval_score
         self._store_history(conversation_id, preprocessed_query, final_answer)
-        
+
         # Сохраняем ответ бота в историю чата
         try:
             self.add_chat_message(conversation_id, final_answer, is_user=False)
@@ -659,15 +784,22 @@ class RAGService:
         except Exception as e:
             print(f"RAG DEBUG: Failed to save final bot answer: {e}")
             logging.warning(f"Failed to save bot message to chat history: {e}")
-        
+
         return RAGResult(final_answer, False, filter_info, eval_score)
-    
-    def suggest_topics(self, conversation_id: int, user_query: str, answer_text: str) -> list[str]:
+
+    def suggest_topics(
+        self, conversation_id: int, user_query: str, answer_text: str
+    ) -> list[str]:
         """Return a list of short topic strings (labels) to show as quick buttons.
         This calls the LLM synchronously (wrap in thread when calling async code).
         """
         try:
-            user_prompt = self.topics_user_template.format(question=user_query, answer=answer_text or "", count=self.topics_count, max_len=self.topics_max_len)
+            user_prompt = self.topics_user_template.format(
+                question=user_query,
+                answer=answer_text or "",
+                count=self.topics_count,
+                max_len=self.topics_max_len,
+            )
             messages = [
                 {"role": "system", "content": self.topics_system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -678,74 +810,85 @@ class RAGService:
             topics: list[str] = []
             for ln in lines:
                 # remove leading numbering like '1.' or '1)'
-                ln = re.sub(r'^[0-9]+[\.)\-]*\s*', '', ln).strip()
+                ln = re.sub(r"^[0-9]+[\.)\-]*\s*", "", ln).strip()
                 if not ln:
                     continue
                 # Truncate to max length
                 if len(ln) > self.topics_max_len:
-                    ln = ln[: self.topics_max_len].rsplit(' ', 1)[0]
+                    ln = ln[: self.topics_max_len].rsplit(" ", 1)[0]
                 topics.append(ln)
                 if len(topics) >= self.topics_count:
                     break
             # Fallback: if nothing parsed, produce simple splits of answer
             if not topics:
-                fallback = re.findall(r"[A-Za-zА-Яа-я0-9\s]{3,}", answer_text or user_query)[: self.topics_count]
+                fallback = re.findall(
+                    r"[A-Za-zА-Яа-я0-9\s]{3,}", answer_text or user_query
+                )[: self.topics_count]
                 topics = [t.strip()[: self.topics_max_len] for t in fallback]
             return topics
         except Exception:
             logger.exception("Failed to suggest topics")
             return []
-    async def generate_ticket_summary(self, messages: list, ticket_id: int = None) -> str:
+
+    async def generate_ticket_summary(
+        self, messages: list, ticket_id: int = None
+    ) -> str:
         """
         Генерирует краткое саммари тикета в 1-2 предложения для операторов
-        
+
         Args:
             messages: Список сообщений тикета (объекты Message из БД)
             ticket_id: ID тикета для кеширования (опционально)
-            
+
         Returns:
             Краткое описание проблемы
         """
         # Проверяем кеш если есть ticket_id
         if ticket_id and ticket_id in self._summary_cache:
             return self._summary_cache[ticket_id]
-            
+
         if not messages:
             summary = "Нет сообщений в тикете"
             if ticket_id:
                 self._summary_cache[ticket_id] = summary
             return summary
-        
+
         # Собираем историю переписки
         conversation = []
         for msg in messages:
-            role = "Пользователь" if msg.sender == "user" else ("Бот" if msg.sender == "bot" else "Оператор")
+            role = (
+                "Пользователь"
+                if msg.sender == "user"
+                else ("Бот" if msg.sender == "bot" else "Оператор")
+            )
             conversation.append(f"{role}: {msg.text}")
-        
+
         conversation_text = "\n".join(conversation)
-        
-        summary_prompt = self.ticket_summary_prompt.format(conversation_text=conversation_text)
+
+        summary_prompt = self.ticket_summary_prompt.format(
+            conversation_text=conversation_text
+        )
 
         try:
             response = self.llm_client.chat.completions.create(
                 model=self.llm_model,
                 messages=[{"role": "user", "content": summary_prompt}],
                 max_tokens=150,
-                temperature=0.3
+                temperature=0.3,
             )
-            
+
             summary = response.choices[0].message.content.strip()
             if self.strip_thinking_tags_enabled:
                 summary = _strip_thinking_tags(summary)
-            
+
             result = summary or "Не удалось создать саммари"
-            
+
             # Сохраняем в кеш если есть ticket_id
             if ticket_id:
                 self._summary_cache[ticket_id] = result
-                
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Error generating ticket summary: {e}")
             error_summary = "Ошибка при создании саммари"

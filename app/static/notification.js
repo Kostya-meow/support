@@ -17,7 +17,7 @@
         try {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             
-            // Создаем звук программно (синусоида 800 Hz, 0.15 сек)
+            // Создаем звук программно
             const duration = 0.15;
             const sampleRate = audioContext.sampleRate;
             const buffer = audioContext.createBuffer(1, duration * sampleRate, sampleRate);
@@ -122,8 +122,7 @@
                 const currentPath = window.location.pathname;
                 const currentConvId = currentPath.match(/\/tickets\/(\d+)/)?.[1];
                 
-                // КРИТИЧЕСКИ ВАЖНО: также проверяем глобальную переменную activeConversationId
-                // Она обновляется ДО изменения URL, поэтому более надежна
+                // Проверяем глобальную переменную activeConversationId
                 const activeConvId = window.getActiveConversationId ? window.getActiveConversationId() : null;
                 
                 console.log('📦 WebSocket received:', {
@@ -153,13 +152,12 @@
                         
                         console.log(`📍 Conv #${conversation.id}: prev=${prevCount}, new=${newCount}, defined=${prevCount !== undefined}`);
                         
-                        // КРИТИЧЕСКАЯ ПРОВЕРКА: звук НЕ должен играть если пользователь реально находится в чате
-                        // Проверяем по двум признакам одновременно
+                        // Звук не должен играть если пользователь реально находится в чате
                         const isInThisChatByUrl = currentConvId && String(conversation.id) === currentConvId;
                         const isInThisChatByVar = activeConvId && String(conversation.id) === String(activeConvId);
                         const isInThisChat = isInThisChatByUrl || isInThisChatByVar;
                         const isStrictlyInChat = Boolean(isInThisChatByUrl && isInThisChatByVar);
-                        // Дополнительная защита: временное подавление при клике на карточку
+                        // Временное подавление при клике на карточку
                         const suppressedId = window.suppressNotificationFor || null;
                         const isSuppressed = suppressedId && String(suppressedId) === String(conversation.id);
                         if (isSuppressed) {
@@ -178,7 +176,7 @@
                         });
 
                         // Воспроизводим звук только если:
-                        // 1. Мы НЕ в этом конкретном чате (ни по URL, ни по переменной)
+                        // 1. Мы не в этом конкретном чате (ни по URL, ни по переменной)
                         // 2. Мы уже видели эту заявку раньше (prevCount !== undefined)
                         // 3. Счетчик увеличился (новое сообщение от пользователя)
                         if (!isStrictlyInChat && !isSuppressed && prevCount !== undefined && newCount > prevCount) {
@@ -233,9 +231,9 @@
                         isFromUser: isFromUser
                     });
                     
-                    // Воспроизводим звук ТОЛЬКО если:
+                    // Воспроизводим звук только если:
                     // 1. Сообщение от пользователя/бота
-                    // 2. Мы НЕ в этом конкретном чате
+                    // 2. Мы не в этом конкретном чате
                     if (isFromUser && !isInThisChat && !isSuppressedMsg) {
                         console.log('🔔 Playing sound: new message from', payload.message.sender, 'in conversation', messageConvId);
                         playNotificationSound();

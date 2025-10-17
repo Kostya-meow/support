@@ -1,8 +1,3 @@
-/* =========================================================
-   Support Desk — единый стиль
-   Слои: reset -> tokens -> base -> layout -> components -> utilities
-   Никаких !important. Все значения через var(--...).
-   ========================================================= */
 @layer reset, tokens, base, layout, components, utilities;
 
 /* ---------------- RESET ---------------- */
@@ -30,7 +25,7 @@
   :root {
     --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
-    /* Цвета (pipette exacts из макета) */
+    /* Цвета */
     --bg: #f4f6ff;
     --surface: #ffffff;
     --surface-alt: #ffffff;
@@ -163,7 +158,7 @@
   }
   .sidebar-section { margin-top: 0; }
   .sidebar-section-title {
-    display: none; /* hide section titles in horizontal nav */
+    display: none; 
   }
   .main-nav { display: flex; gap: 8px; flex-wrap: wrap; }
   .main-nav .main-nav-btn {
@@ -189,7 +184,7 @@
   .sidebar a:hover{ text-decoration: none; }
 
   .tabs{
-    display:none; /* hide tabs from top nav; will show in tickets page sidebar */
+    display:none; 
   }
   .tab-button{
     flex:1;
@@ -254,8 +249,8 @@
     padding-bottom: 0;
     overflow: hidden auto;
     position: relative;
-    min-height: calc(100vh - 64px - 45px); /* subtract header and footer */
-    display:flex; flex-direction:column; /* allow children to stretch to bottom */
+    min-height: calc(100vh - 64px - 45px); 
+    display:flex; flex-direction:column;
   }
 
   .home-page {
@@ -276,13 +271,13 @@
     flex-direction:row;
     gap: 0;
     align-items:stretch;
-    height: calc(100vh - 64px - 45px); /* subtract header and footer */
+    height: calc(100vh - 64px - 45px);
     background: #ffffff;
   }
 
-  /* Tickets page: Telegram-style left sidebar for conversations */
+  /* Tickets page */
   .chat-page .tickets-sidebar {
-    width: 360px; /* Уменьшено с 420px до 360px */
+    width: 360px;
     max-width: 360px;
     background: #ffffff;
     color: #000;
@@ -359,7 +354,6 @@
     background: #ffffff;
   }
   
-  /* Chat content takes remaining space */
   .chat-page .chat-content-wrapper {
     flex: 1;
     display: flex;
@@ -368,7 +362,6 @@
     overflow: hidden;
   }
 
-  /* Make users page area behave like chat/request page: full viewport and stretch to bottom */
   .main-content.users-page {
     padding: clamp(26px, 4vw, 38px);
     padding-bottom: 32px;
@@ -377,7 +370,7 @@
     flex-direction:column;
     gap: 24px;
     align-items:stretch;
-    height: calc(100vh - 64px - 45px); /* force full viewport so inner users-shell can stretch to bottom */
+    height: calc(100vh - 64px - 45px); 
     background: #ffffff;
   }
   .main-content.chat-page > .placeholder,
@@ -386,7 +379,6 @@
   }
   .main-content.chat-page > .chat { flex:1 1 auto; }
   
-  /* Placeholder and chat panel inside chat-content-wrapper */
   .chat-content-wrapper > .placeholder,
   .chat-content-wrapper > .chat {
     width: 100%;
@@ -394,12 +386,11 @@
   }
 
   .conversation-list {
-    display: none; /* hide by default, will show in tickets page layout */
+    display: none;
     overflow:auto;
     min-height:0;
   }
 
-  /* Empty state for conversations */
   .conversation-list .empty-state {
     list-style: none;
     display: flex;
@@ -1711,14 +1702,14 @@
     border-radius: 8px;
     display:grid;
     place-items:center;
-    background: transparent; /* Убираем фон */
-    color: var(--text-secondary); /* Монохром */
+    background: transparent;
+    color: var(--text-secondary);
     transition: .18s ease;
     flex-shrink:0;
   }
   .role-option-icon .material-icons { 
     font-size: 24px;
-    color: var(--text-secondary); /* Монохром */
+    color: var(--text-secondary);
   }
   .role-option-marker {
     margin-left:auto;
@@ -1745,7 +1736,7 @@
     box-shadow: 0 1px 3px rgba(109,91,255,0.2);
   }
   .role-option.active .role-option-marker { background: var(--brand); color:#fff; }
-  /* Убираем цветные стили - все монохромно */
+
   .role-option.admin .role-option-icon,
   .role-option.operator .role-option-icon,
   .role-option.analyst .role-option-icon,
@@ -1888,15 +1879,15 @@
     width:46px;
     height:46px;
     border-radius: 16px;
-    background: transparent; /* Убираем фон */
-    color: var(--text-secondary); /* Монохром */
+    background: transparent;
+    color: var(--text-secondary);
     display:grid;
     place-items:center;
     font-size: 24px;
     flex-shrink:0;
   }
   .checkbox-icon .material-icons {
-    color: var(--text-secondary); /* Монохром */
+    color: var(--text-secondary);
   }
   .checkbox-label { display:grid; gap:4px; }
   .checkbox-title { font-weight:600; color: var(--text); }
@@ -2228,8 +2219,6 @@ body.modal-open .modal { pointer-events: auto; }
   .system-body { color:#000; }
   .chat-message-system .message-text strong,
   .chat-message-mentor .message-text strong { color: var(--brand-strong); }
-  
-  /* Старые стили typing удалены, используются новые из блока выше */
   
   .spin-animation { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }

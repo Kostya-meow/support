@@ -72,8 +72,8 @@ AI Support Desk — интеллектуальная техподдержка д
 - FastAPI — веб-приложение и REST/WS API
 - aiogram — Telegram bot integration (dispatcher, handlers, inline-кнопки)
 - vk_api — VK бот (VkLongPoll / VkBotLongPoll) с fallback-логикой и поддержкой клавиатур/фолбэков
-- SQLAlchemy (async) + aiosqlite — используются SQLite базы: `tickets.db` и `knowledge.db` (конфиг в `app/database.py`)
-- sentence-transformers — эмбеддинги (настройка через config.yaml)
+- SQLAlchemy (async) + aiosqlite — используются SQLite базы: `db/tickets.db` и `db/knowledge.db` (конфиг в `app/database.py`)
+- sentence-transformers — эмбеддинги (настройка через configs/rag_config.yaml)
 - faiss (faiss-cpu) — векторный индекс для поиска по базе знаний
 - rank-bm25 — (импортируется в коде для альтернативного ранжирования)
 - openai (официальный клиент OpenAI) — клиент LLM через универсальный обёртчик (используется в RAG)
@@ -84,9 +84,9 @@ AI Support Desk — интеллектуальная техподдержка д
 
 Инфраструктурные детали:
 
-- БД — SQLite (локальные файлы `tickets.db`, `knowledge.db`) через драйвер `sqlite+aiosqlite` (не PostgreSQL)
+- БД — SQLite (локальные файлы `db/tickets.db`, `db/knowledge.db`) через драйвер `sqlite+aiosqlite` (не PostgreSQL)
 - Асинхронные сессии организованы через `async_sessionmaker` в `app/database.py`
-- Конфигурация загружается из `config.yaml` и ряда YAML-файлов (ответы ботов, симулятор, шаблоны)
+- Конфигурация загружается из `configs/` директории (RAG настройки, настройки приложения, симулятор)
 
 ---
 
@@ -134,7 +134,7 @@ AI Support Desk — интеллектуальная техподдержка д
 Возможные упущенные/малозаметные реализации (рекомендации проверить):
 
 - Наличие готовых миграций и backup-файлов (в репозитории есть `migrate_*.py`, проверить выполнения миграций для прод-сценариев).
-- Проверить, подключён ли путь к модели токсичности в `config.yaml` — если не задан, классификатор выключен.
+- Проверить, подключён ли путь к модели токсичности в `configs/rag_config.yaml` — если не задан, классификатор выключен.
 
 ---
 

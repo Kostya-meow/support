@@ -4,12 +4,17 @@ import contextlib
 from typing import AsyncIterator
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 # База данных для заявок и сообщений
-TICKETS_DATABASE_URL = "sqlite+aiosqlite:///./tickets.db"
+TICKETS_DATABASE_URL = "sqlite+aiosqlite:///./db/tickets.db"
 # База данных для знаний
-KNOWLEDGE_DATABASE_URL = "sqlite+aiosqlite:///./knowledge.db"
+KNOWLEDGE_DATABASE_URL = "sqlite+aiosqlite:///./db/knowledge.db"
 
 # Движки баз данных
 tickets_engine = create_async_engine(TICKETS_DATABASE_URL, echo=False, future=True)
@@ -23,11 +28,11 @@ KnowledgeSessionLocal = async_sessionmaker(knowledge_engine, expire_on_commit=Fa
 async def init_db() -> None:
     """Создание таблиц баз данных при запуске приложения."""
     from app.models import Base, KnowledgeBase
-    
+
     # Создаем таблицы для заявок
     async with tickets_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
     # Создаем таблицы для базы знаний
     async with knowledge_engine.begin() as conn:
         await conn.run_sync(KnowledgeBase.metadata.create_all)

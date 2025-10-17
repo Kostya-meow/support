@@ -22,7 +22,9 @@ def get_settings() -> AuthSettings:
     cookie_name = os.getenv("SESSION_COOKIE_NAME", "support_session")
     cookie_secure = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
     secret_key = os.getenv("SECRET_KEY", "default-secret-key-change-in-production")
-    return AuthSettings(cookie_name=cookie_name, cookie_secure=cookie_secure, secret_key=secret_key)
+    return AuthSettings(
+        cookie_name=cookie_name, cookie_secure=cookie_secure, secret_key=secret_key
+    )
 
 
 def _create_session_token(user_id: int) -> str:
@@ -42,14 +44,16 @@ def _verify_session_token(token: str) -> Optional[int]:
         parts = token.split(":")
         if len(parts) != 3:
             return None
-        
+
         user_id_str, random_part, signature = parts
         payload = f"{user_id_str}:{random_part}"
-        expected_signature = hashlib.sha256(f"{payload}:{settings.secret_key}".encode()).hexdigest()
-        
+        expected_signature = hashlib.sha256(
+            f"{payload}:{settings.secret_key}".encode()
+        ).hexdigest()
+
         if signature != expected_signature:
             return None
-        
+
         return int(user_id_str)
     except (ValueError, AttributeError):
         return None
@@ -57,7 +61,8 @@ def _verify_session_token(token: str) -> Optional[int]:
 
 def validate_credentials(username: str, password: str) -> Optional[dict]:
     """Проверить учетные данные и вернуть пользователя"""
-    from app.user_manager import user_manager
+    from .user_manager import user_manager
+
     return user_manager.verify_password(username, password)
 
 
@@ -96,7 +101,9 @@ def is_authenticated_request(request: Request) -> bool:
 
 def ensure_api_auth(request: Request) -> None:
     if not is_authenticated_request(request):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required"
+        )
 
 
 def is_authenticated_websocket(websocket: WebSocket) -> bool:

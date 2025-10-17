@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import tickets_crud as crud, models
 from app.config import load_vk_responses
-from app.rag_service import RAGResult, RAGService
+from app.rag import RAGResult, RAGService
 from app.realtime import ConnectionManager
 from app.schemas import TicketRead, MessageRead
 
@@ -39,9 +39,11 @@ user_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 def _extract_title_vk(user_id: int, vk_session) -> str:
     """Извлекает имя пользователя из VK"""
     try:
-        user_info = vk_session.method('users.get', {'user_ids': user_id, 'fields': 'first_name,last_name'})[0]
-        first_name = user_info.get('first_name', '')
-        last_name = user_info.get('last_name', '')
+        user_info = vk_session.method(
+            "users.get", {"user_ids": user_id, "fields": "first_name,last_name"}
+        )[0]
+        first_name = user_info.get("first_name", "")
+        last_name = user_info.get("last_name", "")
         if first_name or last_name:
             return f"{first_name} {last_name}".strip()
         return f"VK User {user_id}"
@@ -58,30 +60,32 @@ def create_vk_bot(
 ):
     logger.info("VK: Starting VK bot creation...")
     logger.info(f"VK: Token provided: {'YES' if vk_token else 'NO'}")
-    
+
     vk_session = vk_api.VkApi(token=vk_token)
     vk = vk_session.get_api()
     # expose module-level client for other modules to use when needed
     global VK_API
     VK_API = vk
-    
+
     # Флаг типа longpoll
     is_bot_longpoll = False  # Начинаем с личных сообщений
-    
+
     longpoll = None
-    
+
     # Сначала пробуем VkLongPoll для личных сообщений (более надежный)
     try:
         logger.info("VK: Attempting VkLongPoll for personal messages...")
         longpoll = VkLongPoll(vk_session)
         logger.info("VK: VkLongPoll initialized successfully for personal messages")
     except Exception as e:
-        logger.warning(f"VK: VkLongPoll failed: {e}, trying VkBotLongPoll for groups...")
+        logger.warning(
+            f"VK: VkLongPoll failed: {e}, trying VkBotLongPoll for groups..."
+        )
         try:
             # Fallback: пробуем VkBotLongPoll для сообществ
             logger.info("VK: Attempting to get group info...")
             group_info = vk.groups.getById()
-            group_id = group_info[0]['id']
+            group_id = group_info[0]["id"]
             logger.info(f"VK: Using group ID {group_id}")
             longpoll = VkBotLongPoll(vk_session, group_id=group_id)
             is_bot_longpoll = True
@@ -89,7 +93,9 @@ def create_vk_bot(
         except vk_api.exceptions.ApiError as e:
             logger.error(f"VK: ApiError during group access: {e}")
             if "longpoll for this group is not enabled" in str(e):
-                logger.warning("VK: LongPoll не включен для сообщества, trying polling mode...")
+                logger.warning(
+                    "VK: LongPoll не включен для сообщества, trying polling mode..."
+                )
                 try:
                     # Второй fallback: используем polling через messages.getConversations
                     logger.info("VK: Using polling mode for VK messages")
@@ -115,11 +121,12 @@ def create_vk_bot(
             ticket_data = TicketRead.from_orm(ticket).model_dump(mode="json")
             # Подсчитываем непрочитанные сообщения от user и bot
             unread_count = sum(
-                1 for msg in ticket.messages
-                if msg.sender in ['user', 'bot'] and not msg.is_read
+                1
+                for msg in ticket.messages
+                if msg.sender in ["user", "bot"] and not msg.is_read
             )
             # Ограничиваем максимум 99
-            ticket_data['unread_count'] = min(unread_count, 99)
+            ticket_data["unread_count"] = min(unread_count, 99)
             result.append(ticket_data)
         return result
 
@@ -128,23 +135,35 @@ def create_vk_bot(
             tickets_payload = await _serialize_tickets(session)
         await connection_manager.broadcast_conversations(tickets_payload)
 
-    async def _broadcast_message(conversation_id: int, message_schema: MessageRead) -> None:
-        await connection_manager.broadcast_message(conversation_id, message_schema.model_dump(mode="json"))
+    async def _broadcast_message(
+        conversation_id: int, message_schema: MessageRead
+    ) -> None:
+        await connection_manager.broadcast_message(
+            conversation_id, message_schema.model_dump(mode="json")
+        )
 
-    async def _persist_message_vk(user_id: int, text: str, sender: str = USER_SENDER, message_id: int = None) -> tuple[int | None, bool]:
+    async def _persist_message_vk(
+        user_id: int, text: str, sender: str = USER_SENDER, message_id: int = None
+    ) -> tuple[int | None, bool]:
         """Сохраняет сообщение в существующую заявку (если есть)"""
         chat_id = f"vk_{user_id}"  # Префикс для VK
         async with session_maker() as session:
             # Ищем ОТКРЫТУЮ заявку для данного чата
             ticket = await crud.get_open_ticket_by_chat_id(session, chat_id)
-            logger.info(f"VK: Looking for open ticket for chat_id={chat_id}, found: {ticket.id if ticket else None}")
+            logger.info(
+                f"VK: Looking for open ticket for chat_id={chat_id}, found: {ticket.id if ticket else None}"
+            )
             if ticket is None:
                 # Нет открытой заявки - это обычное общение с ботом
                 return None, False
 
             # Проверяем, есть ли активные подключения к этому чату
-            should_mark_as_read = connection_manager.has_active_chat_connections(ticket.id)
-            logger.info(f"📨 VK Message from {sender} to ticket #{ticket.id}: has_active={should_mark_as_read}")
+            should_mark_as_read = connection_manager.has_active_chat_connections(
+                ticket.id
+            )
+            logger.info(
+                f"📨 VK Message from {sender} to ticket #{ticket.id}: has_active={should_mark_as_read}"
+            )
 
             # Есть открытая заявка - добавляем сообщение
             db_message = await crud.add_message(
@@ -155,43 +174,63 @@ def create_vk_bot(
                 vk_message_id=message_id if sender == USER_SENDER else None,
                 is_read=should_mark_as_read,  # Сразу помечаем как прочитанное, если чат открыт
             )
-            logger.info(f"✅ VK Message #{db_message.id} created with is_read={db_message.is_read}")
+            logger.info(
+                f"✅ VK Message #{db_message.id} created with is_read={db_message.is_read}"
+            )
 
             await session.refresh(db_message)
-            await session.refresh(ticket, ['messages'])
+            await session.refresh(ticket, ["messages"])
             tickets_payload = await _serialize_tickets(session)
 
         await _broadcast_message(ticket.id, MessageRead.from_orm(db_message))
         await connection_manager.broadcast_conversations(tickets_payload)
         return ticket.id, True
 
-    async def _create_ticket_and_add_message_vk(user_id: int, text: str, message_id: int) -> int:
+    async def _create_ticket_and_add_message_vk(
+        user_id: int, text: str, message_id: int
+    ) -> int:
         """Создает новую заявку и добавляет первое сообщение"""
         chat_id = f"vk_{user_id}"
-        logger.info(f"VK: Creating ticket for chat_id={chat_id}, initial text={text[:80]}...")
+        logger.info(
+            f"VK: Creating ticket for chat_id={chat_id}, initial text={text[:80]}..."
+        )
         title = _extract_title_vk(user_id, vk_session)
         async with session_maker() as session:
             # Создаем новую заявку
             ticket = await crud.create_ticket(session, chat_id, title)
-            logger.info(f"VK: New ticket created with id={ticket.id} for chat_id={chat_id}")
+            logger.info(
+                f"VK: New ticket created with id={ticket.id} for chat_id={chat_id}"
+            )
 
             # Проверяем, есть ли активные подключения к этому чату (маловероятно для новой заявки, но проверим)
-            should_mark_as_read = connection_manager.has_active_chat_connections(ticket.id)
+            should_mark_as_read = connection_manager.has_active_chat_connections(
+                ticket.id
+            )
 
             # Пытаемся получить и добавить историю чата из RAG сервиса
             try:
-                print(f"VK BOT DEBUG: Creating ticket for user {user_id}, current message: {text}")
+                print(
+                    f"VK BOT DEBUG: Creating ticket for user {user_id}, current message: {text}"
+                )
 
                 # Получаем историю с момента последней заявки или с начала
                 chat_history = rag_service.get_chat_history_since_last_ticket(chat_id)
-                print(f"VK BOT DEBUG: Retrieved segmented chat history for user {user_id}: {len(chat_history)} messages")
-                logger.info(f"Retrieved segmented chat history for user {user_id}: {len(chat_history)} messages")
+                print(
+                    f"VK BOT DEBUG: Retrieved segmented chat history for user {user_id}: {len(chat_history)} messages"
+                )
+                logger.info(
+                    f"Retrieved segmented chat history for user {user_id}: {len(chat_history)} messages"
+                )
 
                 # Логируем содержимое истории для отладки
                 for i, msg in enumerate(chat_history):
                     sender_type = "USER" if msg.is_user else "BOT"
-                    print(f"VK BOT DEBUG: History message {i+1}: [{sender_type}] {msg.message[:50]}...")
-                    logger.debug(f"History message {i+1}: [{sender_type}] {msg.message[:50]}...")
+                    print(
+                        f"VK BOT DEBUG: History message {i+1}: [{sender_type}] {msg.message[:50]}..."
+                    )
+                    logger.debug(
+                        f"History message {i+1}: [{sender_type}] {msg.message[:50]}..."
+                    )
 
                 # Добавляем все сообщения из релевантной истории чата
                 for i, chat_msg in enumerate(chat_history):
@@ -205,10 +244,14 @@ def create_vk_bot(
                             text=chat_msg.message,
                             vk_message_id=None,  # Для истории не указываем
                             is_system=False,
-                            is_read=should_mark_as_read
+                            is_read=should_mark_as_read,
                         )
-                        print(f"VK BOT DEBUG: Added history message {i+1}/{len(chat_history)}: {sender} - {chat_msg.message[:30]}...")
-                        logger.debug(f"Added history message {i+1}/{len(chat_history)}: {sender}")
+                        print(
+                            f"VK BOT DEBUG: Added history message {i+1}/{len(chat_history)}: {sender} - {chat_msg.message[:30]}..."
+                        )
+                        logger.debug(
+                            f"Added history message {i+1}/{len(chat_history)}: {sender}"
+                        )
                     except Exception as e:
                         print(f"VK BOT DEBUG: Failed to add history message {i+1}: {e}")
                         logger.warning(f"Failed to add history message {i+1}: {e}")
@@ -220,7 +263,9 @@ def create_vk_bot(
                 logger.info(f"Marked ticket creation for user {chat_id}")
 
                 # Проверяем, есть ли уже текущее сообщение в истории
-                last_user_messages = [msg.message for msg in chat_history if msg.is_user]
+                last_user_messages = [
+                    msg.message for msg in chat_history if msg.is_user
+                ]
                 if text in last_user_messages:
                     # Текущее сообщение уже есть в истории, не дублируем
                     # Берем последнее добавленное сообщение как db_message для ответа
@@ -237,34 +282,44 @@ def create_vk_bot(
                         sender=USER_SENDER,
                         text=text,
                         vk_message_id=message_id,
-                        is_read=should_mark_as_read
+                        is_read=should_mark_as_read,
                     )
 
             except Exception as e:
                 # Если что-то пошло не так с историей, просто добавляем текущее сообщение
-                logger.warning(f"Failed to process chat history for user {user_id}: {e}")
+                logger.warning(
+                    f"Failed to process chat history for user {user_id}: {e}"
+                )
                 db_message = await crud.add_message(
                     session,
                     ticket_id=ticket.id,
                     sender=USER_SENDER,
                     text=text,
                     vk_message_id=message_id,
-                    is_read=should_mark_as_read
+                    is_read=should_mark_as_read,
                 )
 
             # Генерируем summary сразу после создания заявки
             try:
                 messages = await crud.list_messages_for_ticket(session, ticket.id)
-                summary = await rag_service.generate_ticket_summary(messages, ticket_id=ticket.id)
+                summary = await rag_service.generate_ticket_summary(
+                    messages, ticket_id=ticket.id
+                )
                 # Сохраняем summary в БД
                 await crud.update_ticket_summary(session, ticket.id, summary)
-                logger.info(f"Generated and saved summary for VK ticket {ticket.id}: {summary[:50]}...")
+                logger.info(
+                    f"Generated and saved summary for VK ticket {ticket.id}: {summary[:50]}..."
+                )
             except Exception as e:
-                logger.warning(f"Failed to generate summary for VK ticket {ticket.id}: {e}")
+                logger.warning(
+                    f"Failed to generate summary for VK ticket {ticket.id}: {e}"
+                )
 
             # Обновляем статус заявки на OPEN если нужно
             if ticket.status != models.TicketStatus.OPEN:
-                await crud.update_ticket_status(session, ticket.id, models.TicketStatus.OPEN)
+                await crud.update_ticket_status(
+                    session, ticket.id, models.TicketStatus.OPEN
+                )
 
             tickets_payload = await _serialize_tickets(session)
 
@@ -297,7 +352,9 @@ def create_vk_bot(
     async def _send_vk_message(user_id: int, text: str, keyboard: dict | None = None):
         """Отправляет сообщение в VK"""
         try:
-            logger.info(f"VK: Attempting to send message to user {user_id}: {text[:100]}...")
+            logger.info(
+                f"VK: Attempting to send message to user {user_id}: {text[:100]}..."
+            )
             # Проверяем, что user_id положительный (для пользователей)
             if user_id > 0:
                 logger.info(f"VK: User ID is positive: {user_id}, proceeding with send")
@@ -310,17 +367,21 @@ def create_vk_bot(
                 if keyboard:
                     try:
                         # Ensure keyboard explicitly contains inline:true
-                        if isinstance(keyboard, dict) and 'inline' not in keyboard:
-                            keyboard['inline'] = True
+                        if isinstance(keyboard, dict) and "inline" not in keyboard:
+                            keyboard["inline"] = True
                         params["keyboard"] = json.dumps(keyboard, ensure_ascii=False)
                         try:
                             # extract option labels and store in pending_options for numeric replies
-                            rows = keyboard.get('buttons', []) if isinstance(keyboard, dict) else []
+                            rows = (
+                                keyboard.get("buttons", [])
+                                if isinstance(keyboard, dict)
+                                else []
+                            )
                             opts = []
                             for row in rows:
                                 for btn in row:
                                     try:
-                                        lbl = btn.get('action', {}).get('label')
+                                        lbl = btn.get("action", {}).get("label")
                                     except Exception:
                                         lbl = None
                                     if lbl:
@@ -334,43 +395,71 @@ def create_vk_bot(
                 logger.debug(f"VK: Sending params: {params}")
                 try:
                     result = vk.messages.send(**params)
-                    logger.info(f"VK: Message sent successfully to user {user_id}, result: {result}")
+                    logger.info(
+                        f"VK: Message sent successfully to user {user_id}, result: {result}"
+                    )
                 except vk_api.exceptions.ApiError as api_e:
                     # Handle common VK errors (e.g., chat bot feature not enabled)
-                    logger.error(f"VK: ApiError while sending message to {user_id}: {api_e}")
+                    logger.error(
+                        f"VK: ApiError while sending message to {user_id}: {api_e}"
+                    )
                     # If chat bot feature not enabled (912), advise enabling or use community token
                     try:
-                        if hasattr(api_e, 'code') and api_e.code == 912 or '912' in str(api_e):
-                            logger.error("VK: ApiError [912] detected - Chat bot feature may be disabled for this token. Enable Chat bot feature in group settings or use a community token.")
+                        if (
+                            hasattr(api_e, "code")
+                            and api_e.code == 912
+                            or "912" in str(api_e)
+                        ):
+                            logger.error(
+                                "VK: ApiError [912] detected - Chat bot feature may be disabled for this token. Enable Chat bot feature in group settings or use a community token."
+                            )
                     except Exception:
                         pass
                     # Fallback: if keyboard was provided, send a numbered text fallback
                     if keyboard:
                         try:
                             # build numbered fallback from keyboard buttons
-                            rows = keyboard.get('buttons', []) if isinstance(keyboard, dict) else []
+                            rows = (
+                                keyboard.get("buttons", [])
+                                if isinstance(keyboard, dict)
+                                else []
+                            )
                             options = []
                             idx = 1
                             for row in rows:
                                 for btn in row:
                                     label = None
                                     try:
-                                        label = btn.get('action', {}).get('label')
+                                        label = btn.get("action", {}).get("label")
                                     except Exception:
                                         label = str(btn)
                                     if label:
                                         options.append(f"{idx}. {label}")
                                         idx += 1
                             if options:
-                                fallback_text = text + "\n\n" + "Пожалуйста, выберите опцию:\n" + "\n".join(options)
-                                vk.messages.send(peer_id=user_id, message=fallback_text, random_id=vk_api.utils.get_random_id())
+                                fallback_text = (
+                                    text
+                                    + "\n\n"
+                                    + "Пожалуйста, выберите опцию:\n"
+                                    + "\n".join(options)
+                                )
+                                vk.messages.send(
+                                    peer_id=user_id,
+                                    message=fallback_text,
+                                    random_id=vk_api.utils.get_random_id(),
+                                )
                                 try:
                                     # store pending numeric options mapping
-                                    pending_options[user_id] = [opt.split('. ', 1)[1] if '. ' in opt else opt for opt in options]
+                                    pending_options[user_id] = [
+                                        opt.split(". ", 1)[1] if ". " in opt else opt
+                                        for opt in options
+                                    ]
                                 except Exception:
                                     pass
                         except Exception as e:
-                            logger.debug(f"VK: Failed to send fallback numbered message: {e}")
+                            logger.debug(
+                                f"VK: Failed to send fallback numbered message: {e}"
+                            )
                     return
             else:
                 logger.warning(f"VK: Invalid user_id {user_id}, cannot send message")
@@ -378,16 +467,16 @@ def create_vk_bot(
             logger.error(f"VK: Failed to send VK message to {user_id}: {e}")
             logger.error(f"VK: Error details: {type(e).__name__}: {e}")
             # Try to get more details about the error
-            if hasattr(e, 'error_code'):
+            if hasattr(e, "error_code"):
                 logger.error(f"VK: Error code: {e.error_code}")
-            if hasattr(e, 'error_msg'):
+            if hasattr(e, "error_msg"):
                 logger.error(f"VK: Error message: {e.error_msg}")
 
     async def _send_vk_typing(user_id: int):
         """Отправляет статус 'печатает' в VK"""
         try:
             logger.debug(f"VK: Sending typing status to user {user_id}")
-            vk.messages.setActivity(user_id=user_id, type='typing')
+            vk.messages.setActivity(user_id=user_id, type="typing")
         except Exception as e:
             logger.debug(f"VK: Failed to send typing status to {user_id}: {e}")
 
@@ -410,10 +499,16 @@ def create_vk_bot(
                         payload = json.dumps({"topic": label}, ensure_ascii=False)
                     except Exception:
                         payload = json.dumps({"topic": str(label)})
-                    kb_row.append({
-                        "action": {"type": "text", "payload": payload, "label": label},
-                        "color": "default",
-                    })
+                    kb_row.append(
+                        {
+                            "action": {
+                                "type": "text",
+                                "payload": payload,
+                                "label": label,
+                            },
+                            "color": "default",
+                        }
+                    )
                 kb["buttons"].append(kb_row)
             # register pending options for users when this keyboard will be sent
             # Note: we cannot know user_id here; caller should set pending_options[user_id] after send
@@ -427,10 +522,26 @@ def create_vk_bot(
             kb = {"one_time": True, "buttons": [], "inline": True}
             yes_payload = json.dumps({"confirm_operator": "yes"}, ensure_ascii=False)
             no_payload = json.dumps({"confirm_operator": "no"}, ensure_ascii=False)
-            kb["buttons"].append([
-                {"action": {"type": "text", "payload": yes_payload, "label": "Да"}, "color": "primary"},
-                {"action": {"type": "text", "payload": no_payload, "label": "Нет"}, "color": "default"},
-            ])
+            kb["buttons"].append(
+                [
+                    {
+                        "action": {
+                            "type": "text",
+                            "payload": yes_payload,
+                            "label": "Да",
+                        },
+                        "color": "primary",
+                    },
+                    {
+                        "action": {
+                            "type": "text",
+                            "payload": no_payload,
+                            "label": "Нет",
+                        },
+                        "color": "default",
+                    },
+                ]
+            )
             return kb
         except Exception:
             return None
@@ -461,7 +572,7 @@ def create_vk_bot(
                 thirty_days_ago = datetime.utcnow() - timedelta(days=30)
                 stmt = select(models.Ticket).where(
                     models.Ticket.status == models.TicketStatus.CLOSED,
-                    models.Ticket.created_at >= thirty_days_ago
+                    models.Ticket.created_at >= thirty_days_ago,
                 )
                 result = await session.execute(stmt)
                 tickets = result.scalars().all()
@@ -472,7 +583,9 @@ def create_vk_bot(
                 response_times = []
                 for ticket in tickets:
                     messages = await crud.list_messages_for_ticket(session, ticket.id)
-                    operator_message = next((m for m in messages if m.sender == "operator"), None)
+                    operator_message = next(
+                        (m for m in messages if m.sender == "operator"), None
+                    )
                     if operator_message and ticket.created_at:
                         delta = operator_message.created_at - ticket.created_at
                         response_times.append(delta.total_seconds() / 60)
@@ -498,20 +611,26 @@ def create_vk_bot(
 
     async def _answer_with_rag_only_vk(user_id: int, user_text: str) -> None:
         """Отвечает пользователю через RAG без создания заявки"""
-        logger.info(f"VK: Starting RAG processing for user {user_id}, text: {user_text[:50]}...")
-        
+        logger.info(
+            f"VK: Starting RAG processing for user {user_id}, text: {user_text[:50]}..."
+        )
+
         # Отправляем статус "печатает"
         await _send_vk_typing(user_id)
-        
+
         try:
             conversation_id = f"vk_{user_id}"
-            logger.info(f"VK: Calling RAG generate_reply for conversation {conversation_id}")
+            logger.info(
+                f"VK: Calling RAG generate_reply for conversation {conversation_id}"
+            )
             rag_result: RAGResult = await asyncio.to_thread(
                 rag_service.generate_reply,
                 conversation_id,
                 user_text,
             )
-            logger.info(f"VK: RAG result received: operator_requested={rag_result.operator_requested}, answer_length={len(rag_result.final_answer) if rag_result.final_answer else 0}")
+            logger.info(
+                f"VK: RAG result received: operator_requested={rag_result.operator_requested}, answer_length={len(rag_result.final_answer) if rag_result.final_answer else 0}"
+            )
         except Exception as exc:
             logger.exception("VK RAG generation failed: %s", exc)
             fallback = "Не смогла обработать запрос. Попробуйте ещё раз или позовите оператора."
@@ -522,7 +641,6 @@ def create_vk_bot(
             logger.info(f"VK: RAG requested operator for user {user_id}")
             # RAG решил, что нужен оператор - показываем предложение
             avg_response_time = await _get_average_response_time()
-
 
             combined_text = (
                 f"{rag_result.final_answer}\n\n"
@@ -539,7 +657,9 @@ def create_vk_bot(
         else:
             logger.info(f"VK: RAG provided direct answer for user {user_id}")
             response_text = f"{rag_result.final_answer}"
-            logger.info(f"VK: Sending RAG response to user {user_id}: {response_text[:100]}...")
+            logger.info(
+                f"VK: Sending RAG response to user {user_id}: {response_text[:100]}..."
+            )
             await _send_vk_message(user_id, response_text)
 
             # Сохраняем в истории RAG
@@ -554,32 +674,61 @@ def create_vk_bot(
 
             # Normalize attachment: it may be a dict or a short string; if it's not a dict, try to fetch full message
             if not isinstance(attachment, dict):
-                logger.debug("VK: attachment is not dict, attempting to fetch message by id to resolve attachments")
+                logger.debug(
+                    "VK: attachment is not dict, attempting to fetch message by id to resolve attachments"
+                )
                 try:
                     msg_info = vk.messages.getById(message_ids=message_id)
-                    items = msg_info.get('items', [])
+                    items = msg_info.get("items", [])
                     if items:
                         msg_obj = items[0]
-                        atts = msg_obj.get('attachments', [])
+                        atts = msg_obj.get("attachments", [])
                         # find first audio_message attachment
                         found = None
                         for att in atts:
-                            if isinstance(att, dict) and att.get('type') == 'audio_message':
+                            if (
+                                isinstance(att, dict)
+                                and att.get("type") == "audio_message"
+                            ):
                                 found = att
                                 break
                         if found:
                             attachment = found
                         else:
-                            logger.warning(f"VK: No audio_message attachment found in fetched message {message_id}")
-                            await _send_vk_message(user_id, vk_responses.get("voice_processing_error", "❌ Не удалось получить голосовое сообщение."))
+                            logger.warning(
+                                f"VK: No audio_message attachment found in fetched message {message_id}"
+                            )
+                            await _send_vk_message(
+                                user_id,
+                                vk_responses.get(
+                                    "voice_processing_error",
+                                    "❌ Не удалось получить голосовое сообщение.",
+                                ),
+                            )
                             return
                     else:
-                        logger.warning(f"VK: getById returned no items for message {message_id}")
-                        await _send_vk_message(user_id, vk_responses.get("voice_processing_error", "❌ Не удалось получить голосовое сообщение."))
+                        logger.warning(
+                            f"VK: getById returned no items for message {message_id}"
+                        )
+                        await _send_vk_message(
+                            user_id,
+                            vk_responses.get(
+                                "voice_processing_error",
+                                "❌ Не удалось получить голосовое сообщение.",
+                            ),
+                        )
                         return
                 except Exception as e:
-                    logger.debug(f"VK: Failed to fetch message by id for attachment: {e}")
-                    await _send_vk_message(user_id, vk_responses.get("voice_processing_error", "❌ Не удалось получить голосовое сообщение."))
+                    logger.debug(
+                        f"VK: Failed to fetch message by id for attachment: {e}"
+                    )
+                    await _send_vk_message(
+                        user_id,
+                        vk_responses.get(
+                            "voice_processing_error",
+                            "❌ Не удалось получить голосовое сообщение.",
+                        ),
+                    )
                     return
 
             # НЕ сохраняем placeholder — будем сохранять только расшифровку.
@@ -592,45 +741,72 @@ def create_vk_bot(
 
             # Уведомляем пользователя о начале обработки
             vk_responses = load_vk_responses()
-            processing_msg = vk_responses.get("processing_message", "⏳ Обрабатываю ваш запрос...")
+            processing_msg = vk_responses.get(
+                "processing_message", "⏳ Обрабатываю ваш запрос..."
+            )
             await _send_vk_message(user_id, processing_msg)
 
             # Получаем URL аудио файл (поддерживаем разные варианты полей)
             audio_message = {}
             if isinstance(attachment, dict):
-                audio_message = attachment.get('audio_message') or attachment.get('audio') or {}
+                audio_message = (
+                    attachment.get("audio_message") or attachment.get("audio") or {}
+                )
             # try multiple keys commonly used
             audio_url = None
             if isinstance(audio_message, dict):
-                audio_url = audio_message.get('link_mp3') or audio_message.get('link_ogg') or audio_message.get('link') or audio_message.get('url')
+                audio_url = (
+                    audio_message.get("link_mp3")
+                    or audio_message.get("link_ogg")
+                    or audio_message.get("link")
+                    or audio_message.get("url")
+                )
 
             if not audio_url:
                 # Попробуем получить через messages.getById (ещё один шанс)
                 try:
                     msg_info = vk.messages.getById(message_ids=message_id)
-                    items = msg_info.get('items', [])
+                    items = msg_info.get("items", [])
                     if items:
                         msg_obj = items[0]
-                        atts = msg_obj.get('attachments', [])
+                        atts = msg_obj.get("attachments", [])
                         for att in atts:
-                            if isinstance(att, dict) and att.get('type') == 'audio_message':
-                                am = att.get('audio_message') or att.get('audio') or {}
-                                audio_url = am.get('link_mp3') or am.get('link_ogg') or am.get('link') or am.get('url')
+                            if (
+                                isinstance(att, dict)
+                                and att.get("type") == "audio_message"
+                            ):
+                                am = att.get("audio_message") or att.get("audio") or {}
+                                audio_url = (
+                                    am.get("link_mp3")
+                                    or am.get("link_ogg")
+                                    or am.get("link")
+                                    or am.get("url")
+                                )
                                 if audio_url:
                                     break
                 except Exception as e:
                     logger.debug(f"VK: getById extra attempt failed: {e}")
 
             if not audio_url:
-                await _send_vk_message(user_id, vk_responses.get("voice_processing_error", "❌ Не удалось получить голосовое сообщение."))
+                await _send_vk_message(
+                    user_id,
+                    vk_responses.get(
+                        "voice_processing_error",
+                        "❌ Не удалось получить голосовое сообщение.",
+                    ),
+                )
                 # Mark placeholder as system note if persisted earlier
                 try:
                     if ticket_id_tmp:
-                        await _send_bot_message(ticket_id_tmp, "[Голосовое сообщение получено, но не удалось скачать аудио]", is_system=True)
+                        await _send_bot_message(
+                            ticket_id_tmp,
+                            "[Голосовое сообщение получено, но не удалось скачать аудио]",
+                            is_system=True,
+                        )
                 except Exception:
                     pass
                 return
-            
+
             # Скачиваем аудио файл
             import requests
             import tempfile
@@ -639,44 +815,71 @@ def create_vk_bot(
             # Скачиваем в отдельном потоке (синхронно)
             response = await asyncio.to_thread(requests.get, audio_url, timeout=20)
             if response.status_code != 200:
-                await _send_vk_message(user_id, vk_responses.get("voice_download_error", "❌ Не удалось скачать голосовое сообщение."))
+                await _send_vk_message(
+                    user_id,
+                    vk_responses.get(
+                        "voice_download_error",
+                        "❌ Не удалось скачать голосовое сообщение.",
+                    ),
+                )
                 return
-            
+
             # Сохраняем во временный файл
             with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
                 temp_file.write(response.content)
                 temp_file_path = temp_file.name
-            
+
             try:
                 # Преобразуем голос в текст
                 try:
-                    transcribed_text = await rag_service.speech_to_text.transcribe_audio(temp_file_path)
+                    transcribed_text = (
+                        await rag_service.speech_to_text.transcribe_audio(
+                            temp_file_path
+                        )
+                    )
                 except Exception as e:
-                    logger.exception(f"VK: speech_to_text failed for user {user_id}: {e}")
+                    logger.exception(
+                        f"VK: speech_to_text failed for user {user_id}: {e}"
+                    )
                     transcribed_text = None
-
 
                 if not transcribed_text:
                     # Если распознавание не удалось, уведомляем пользователя и НЕ создаём пустую запись
-                    await _send_vk_message(user_id, vk_responses.get("speech_recognition_error", "❌ Не удалось распознать речь. Попробуйте еще раз или напишите текстом."))
+                    await _send_vk_message(
+                        user_id,
+                        vk_responses.get(
+                            "speech_recognition_error",
+                            "❌ Не удалось распознать речь. Попробуйте еще раз или напишите текстом.",
+                        ),
+                    )
                     return
 
                 # Обрабатываем расшифровку как обычное текстовое сообщение — сохраняем транскрипт
-                ticket_id, has_ticket = await _persist_message_vk(user_id, transcribed_text, USER_SENDER, message_id)
+                ticket_id, has_ticket = await _persist_message_vk(
+                    user_id, transcribed_text, USER_SENDER, message_id
+                )
 
                 # Если есть заявка, сообщение уже сохранено — ничего не отправляем от бота
                 # Если нет заявки — отвечаем через RAG
                 if not has_ticket or not ticket_id:
                     await _answer_with_rag_only_vk(user_id, transcribed_text)
-                
+
             finally:
                 # Удаляем временный файл
                 if os.path.exists(temp_file_path):
                     os.unlink(temp_file_path)
-                    
+
         except Exception as e:
-            logger.exception(f"VK: Error processing voice message from user {user_id}: {e}")
-            await _send_vk_message(user_id, vk_responses.get("voice_general_error", "❌ Произошла ошибка при обработке голосового сообщения. Попробуйте написать текстом."))
+            logger.exception(
+                f"VK: Error processing voice message from user {user_id}: {e}"
+            )
+            await _send_vk_message(
+                user_id,
+                vk_responses.get(
+                    "voice_general_error",
+                    "❌ Произошла ошибка при обработке голосового сообщения. Попробуйте написать текстом.",
+                ),
+            )
 
     async def handle_vk_message(event):
         """Обрабатывает входящее сообщение из VK"""
@@ -688,60 +891,76 @@ def create_vk_bot(
 
         try:
             # Case: event.object -> VkBotLongPoll event wrapper
-            if hasattr(event, 'object') and isinstance(event.object, dict):
-                msg = event.object.get('message') or event.object
+            if hasattr(event, "object") and isinstance(event.object, dict):
+                msg = event.object.get("message") or event.object
                 # payload may be present in bot events
-                payload_raw = msg.get('payload') if isinstance(msg, dict) else None
+                payload_raw = msg.get("payload") if isinstance(msg, dict) else None
                 payload = None
                 if payload_raw:
                     try:
                         payload = json.loads(payload_raw)
                     except Exception:
                         payload = None
-                user_id = msg.get('from_id') or msg.get('peer_id') or msg.get('user_id')
-                text = msg.get('text') or ''
-                message_id = msg.get('id') or msg.get('message_id') or 0
-                attachments = msg.get('attachments') or []
+                user_id = msg.get("from_id") or msg.get("peer_id") or msg.get("user_id")
+                text = msg.get("text") or ""
+                message_id = msg.get("id") or msg.get("message_id") or 0
+                attachments = msg.get("attachments") or []
                 # If payload contains a topic, override text with it for processing
                 if payload and isinstance(payload, dict):
-                    if payload.get('topic'):
-                        text = payload.get('topic')
+                    if payload.get("topic"):
+                        text = payload.get("topic")
                     # operator confirm payload handling
-                    if payload.get('confirm_operator'):
-                        choice = str(payload.get('confirm_operator')).lower()
-                        if choice == 'yes' or choice == 'y' or choice == 'да':
+                    if payload.get("confirm_operator"):
+                        choice = str(payload.get("confirm_operator")).lower()
+                        if choice == "yes" or choice == "y" or choice == "да":
                             # create ticket now
-                            ticket_id = await _create_ticket_and_add_message_vk(user_id, 'Пользователь подтвердил подключение оператора', message_id)
+                            ticket_id = await _create_ticket_and_add_message_vk(
+                                user_id,
+                                "Пользователь подтвердил подключение оператора",
+                                message_id,
+                            )
                             if ticket_id:
                                 await _broadcast_tickets()
                             # notify user
-                            await _send_vk_message(user_id, vk_responses.get("operator_connected", "✅ Оператор будет подключен. Ожидайте ответа."))
+                            await _send_vk_message(
+                                user_id,
+                                vk_responses.get(
+                                    "operator_connected",
+                                    "✅ Оператор будет подключен. Ожидайте ответа.",
+                                ),
+                            )
                         else:
-                            await _send_vk_message(user_id, vk_responses.get("operator_cancelled", "Отмена подключения оператора."))
+                            await _send_vk_message(
+                                user_id,
+                                vk_responses.get(
+                                    "operator_cancelled",
+                                    "Отмена подключения оператора.",
+                                ),
+                            )
                         # We handled the payload action — stop further processing
                         return
             # Case: event.message (some wrappers)
-            elif hasattr(event, 'message') and isinstance(event.message, dict):
+            elif hasattr(event, "message") and isinstance(event.message, dict):
                 msg = event.message
-                payload_raw = msg.get('payload') if isinstance(msg, dict) else None
+                payload_raw = msg.get("payload") if isinstance(msg, dict) else None
                 payload = None
                 if payload_raw:
                     try:
                         payload = json.loads(payload_raw)
                     except Exception:
                         payload = None
-                user_id = msg.get('from_id') or msg.get('peer_id')
-                text = msg.get('text') or ''
-                message_id = msg.get('id') or 0
-                attachments = msg.get('attachments') or []
-                if payload and isinstance(payload, dict) and payload.get('topic'):
-                    text = payload.get('topic')
+                user_id = msg.get("from_id") or msg.get("peer_id")
+                text = msg.get("text") or ""
+                message_id = msg.get("id") or 0
+                attachments = msg.get("attachments") or []
+                if payload and isinstance(payload, dict) and payload.get("topic"):
+                    text = payload.get("topic")
             # Case: simple Event with attrs user_id/text
-            elif hasattr(event, 'user_id'):
-                user_id = getattr(event, 'user_id', None)
-                text = getattr(event, 'text', '') or ''
-                message_id = getattr(event, 'message_id', getattr(event, 'id', 0))
-                attachments = getattr(event, 'attachments', []) or []
+            elif hasattr(event, "user_id"):
+                user_id = getattr(event, "user_id", None)
+                text = getattr(event, "text", "") or ""
+                message_id = getattr(event, "message_id", getattr(event, "id", 0))
+                attachments = getattr(event, "attachments", []) or []
             else:
                 logger.error(f"VK: Event missing required attributes: {dir(event)}")
                 return
@@ -756,18 +975,31 @@ def create_vk_bot(
             for att in atts_list:
                 try:
                     if isinstance(att, dict):
-                        typ = att.get('type')
-                        if typ == 'audio_message':
+                        typ = att.get("type")
+                        if typ == "audio_message":
                             return att
                         # some shapes may contain audio under 'audio_message' or 'audio'
-                        inner = att.get('audio_message') or att.get('audio')
-                        if isinstance(inner, dict) and (inner.get('link_mp3') or inner.get('link_ogg') or inner.get('url') or inner.get('link')):
-                            return {'type': 'audio_message', 'audio_message': inner}
+                        inner = att.get("audio_message") or att.get("audio")
+                        if isinstance(inner, dict) and (
+                            inner.get("link_mp3")
+                            or inner.get("link_ogg")
+                            or inner.get("url")
+                            or inner.get("link")
+                        ):
+                            return {"type": "audio_message", "audio_message": inner}
                         # doc attachments may contain audio files
-                        if typ == 'doc':
-                            doc = att.get('doc') or {}
-                            if doc.get('mime_type', '').startswith('audio') or doc.get('ext') in ['mp3', 'ogg']:
-                                return {'type': 'audio_message', 'audio_message': {'link': doc.get('url') or doc.get('preview', {}).get('photo') }}
+                        if typ == "doc":
+                            doc = att.get("doc") or {}
+                            if doc.get("mime_type", "").startswith("audio") or doc.get(
+                                "ext"
+                            ) in ["mp3", "ogg"]:
+                                return {
+                                    "type": "audio_message",
+                                    "audio_message": {
+                                        "link": doc.get("url")
+                                        or doc.get("preview", {}).get("photo")
+                                    },
+                                }
                     elif isinstance(att, str):
                         # short form string like 'audio_message123_456' - ignore here, we'll fetch full message
                         continue
@@ -780,7 +1012,9 @@ def create_vk_bot(
         if attachments and isinstance(attachments, list):
             audio_att = _find_audio_in_attachments(attachments)
             if audio_att:
-                logger.info(f"VK: Detected audio attachment in provided attachments for user {user_id}")
+                logger.info(
+                    f"VK: Detected audio attachment in provided attachments for user {user_id}"
+                )
                 await _handle_vk_voice_message(user_id, audio_att, message_id)
                 return
 
@@ -788,19 +1022,23 @@ def create_vk_bot(
         if (not text or not text.strip()) and message_id:
             try:
                 msg_info = vk.messages.getById(message_ids=message_id)
-                items = msg_info.get('items', [])
+                items = msg_info.get("items", [])
                 if items:
                     msg_obj = items[0]
-                    atts = msg_obj.get('attachments', [])
+                    atts = msg_obj.get("attachments", [])
                     audio_att = _find_audio_in_attachments(atts)
                     if audio_att:
-                        logger.info(f"VK: Detected audio attachment after getById for user {user_id}")
+                        logger.info(
+                            f"VK: Detected audio attachment after getById for user {user_id}"
+                        )
                         await _handle_vk_voice_message(user_id, audio_att, message_id)
                         return
             except Exception as e:
                 logger.debug(f"VK: getById secondary check failed: {e}")
 
-        logger.info(f"VK: Processing message from user {user_id}: '{text}' (id={message_id})")
+        logger.info(
+            f"VK: Processing message from user {user_id}: '{text}' (id={message_id})"
+        )
 
         # If user replied with a single number and we have pending options, map it
         if isinstance(text, str) and text.strip().isdigit():
@@ -809,7 +1047,9 @@ def create_vk_bot(
                 opts = pending_options.get(user_id)
                 if opts and 1 <= num <= len(opts):
                     mapped = opts[num - 1]
-                    logger.info(f"VK: Mapped numeric reply {num} -> '{mapped}' for user {user_id}")
+                    logger.info(
+                        f"VK: Mapped numeric reply {num} -> '{mapped}' for user {user_id}"
+                    )
                     text = mapped
                     # clear pending options after selection
                     try:
@@ -822,24 +1062,45 @@ def create_vk_bot(
         # Проверяем блокировку
         async with user_locks[user_id]:
             # Проверяем, есть ли открытая заявка
-            ticket_id, persisted = await _persist_message_vk(user_id, text, USER_SENDER, message_id)
-            logger.info(f"VK: persist_message returned ticket_id={ticket_id}, persisted={persisted}")
+            ticket_id, persisted = await _persist_message_vk(
+                user_id, text, USER_SENDER, message_id
+            )
+            logger.info(
+                f"VK: persist_message returned ticket_id={ticket_id}, persisted={persisted}"
+            )
 
             if persisted:
                 # Сообщение сохранено в существующую заявку
-                logger.info(f"VK: Message saved to existing ticket {ticket_id}, not responding to user")
+                logger.info(
+                    f"VK: Message saved to existing ticket {ticket_id}, not responding to user"
+                )
                 await _broadcast_tickets()
                 return
 
             # Нет открытой заявки - проверяем специальные команды
             low = text.lower().strip()
-            agree_phrases = ['да', 'yes', 'подключить оператора', 'да, подключить оператора']
-            operator_phrases = ['позови оператора', 'позовите оператора', 'вызвать оператора', 'хочу оператора', 'подключите оператора', 'позови', 'позовите']
+            agree_phrases = [
+                "да",
+                "yes",
+                "подключить оператора",
+                "да, подключить оператора",
+            ]
+            operator_phrases = [
+                "позови оператора",
+                "позовите оператора",
+                "вызвать оператора",
+                "хочу оператора",
+                "подключите оператора",
+                "позови",
+                "позовите",
+            ]
 
             # Если пользователь явно ответил 'да' на предложение подключить оператора
             if low in agree_phrases:
                 logger.info(f"VK: User {user_id} agreed to connect operator")
-                ticket_id = await _create_ticket_and_add_message_vk(user_id, text, message_id)
+                ticket_id = await _create_ticket_and_add_message_vk(
+                    user_id, text, message_id
+                )
                 if ticket_id:
                     await _broadcast_tickets()
                 return
@@ -852,17 +1113,20 @@ def create_vk_bot(
                     if p in s:
                         return True
                 # heuristic: 'оператор' + nearby verb-like words
-                if 'оператор' in s:
-                    verbs = ['поз', 'выз', 'подкл', 'хоч', 'нужн']
+                if "оператор" in s:
+                    verbs = ["поз", "выз", "подкл", "хоч", "нужн"]
                     for v in verbs:
                         if v in s:
                             return True
                 return False
+
             if requests_operator(low):
                 logger.info(f"VK: User {user_id} requested operator via phrase: {text}")
                 # Instead of creating ticket immediately, send instruction to reply 'да' to call operator
                 avg_response_time = await _get_average_response_time()
-                confirm_text = vk_responses.get("operator_request_confirmation", "").format(avg_response_time=avg_response_time)
+                confirm_text = vk_responses.get(
+                    "operator_request_confirmation", ""
+                ).format(avg_response_time=avg_response_time)
                 await _send_vk_message(user_id, confirm_text)
                 # Save a system note in history that user asked to call operator (not creating ticket yet)
                 try:
@@ -890,22 +1154,22 @@ def create_vk_bot(
             # Извлекаем числовой user_id для истории
             user_id_int = user_id
             chat_history = rag_service.get_chat_history(user_id_int)
-            
+
             # Ищем последнее сообщение бота с темами
             for msg in reversed(chat_history):
                 if not msg.is_user and "Хотите узнать подробнее" in msg.message:
                     # Разбираем темы из сообщения
-                    lines = msg.message.split('\n')
+                    lines = msg.message.split("\n")
                     topics = []
                     for line in lines:
-                        if line.strip().startswith('• '):
+                        if line.strip().startswith("• "):
                             topic = line.strip()[2:]  # Убираем "• "
                             topics.append(topic)
-                    
+
                     if topics:
                         # Проверяем, является ли текст номером или названием темы
                         text_lower = text.lower().strip()
-                        
+
                         # Проверяем номер темы (1, 2, 3...)
                         try:
                             topic_index = int(text) - 1  # 1-based to 0-based
@@ -913,22 +1177,27 @@ def create_vk_bot(
                                 return topics[topic_index]
                         except ValueError:
                             pass
-                        
+
                         # Проверяем точное совпадение названия темы
                         for topic in topics:
                             if text_lower == topic.lower():
                                 return topic
-                        
+
                         # Проверяем частичное совпадение
                         for topic in topics:
-                            if text_lower in topic.lower() or topic.lower() in text_lower:
+                            if (
+                                text_lower in topic.lower()
+                                or topic.lower() in text_lower
+                            ):
                                 return topic
-                    
+
                     break  # Проверяем только последнее сообщение с темами
-            
+
             return None
         except Exception as e:
-            logger.exception(f"VK: Error checking topic selection for user {user_id}: {e}")
+            logger.exception(
+                f"VK: Error checking topic selection for user {user_id}: {e}"
+            )
             return None
 
     # Очередь для сообщений из потока
@@ -937,14 +1206,20 @@ def create_vk_bot(
     # Основной цикл прослушивания
     def run_vk_bot_sync():
         """Синхронная функция для работы в отдельном потоке"""
-        logger.info(f"VK: Starting VK longpoll listener (bot_mode={is_bot_longpoll})...")
+        logger.info(
+            f"VK: Starting VK longpoll listener (bot_mode={is_bot_longpoll})..."
+        )
         try:
             for event in longpoll.listen():
-                logger.info(f"VK: Received event type={event.type}, user_id={getattr(event, 'user_id', 'N/A')}, text={getattr(event, 'text', 'N/A')}")
+                logger.info(
+                    f"VK: Received event type={event.type}, user_id={getattr(event, 'user_id', 'N/A')}, text={getattr(event, 'text', 'N/A')}"
+                )
                 if is_bot_longpoll:
                     # VkBotLongPoll
                     if event.type == VkBotEventType.MESSAGE_NEW:
-                        logger.info(f"VK: Processing bot message from user {event.user_id}: {event.text}")
+                        logger.info(
+                            f"VK: Processing bot message from user {event.user_id}: {event.text}"
+                        )
                         # Помещаем событие в очередь для обработки в asyncio
                         asyncio.run_coroutine_threadsafe(message_queue.put(event), loop)
                     else:
@@ -952,11 +1227,15 @@ def create_vk_bot(
                 else:
                     # VkLongPoll fallback
                     if event.type == VkEventType.MESSAGE_NEW and event.to_me:
-                        logger.info(f"VK: Processing personal message to me from user {event.user_id}: {event.text}")
+                        logger.info(
+                            f"VK: Processing personal message to me from user {event.user_id}: {event.text}"
+                        )
                         # Помещаем событие в очередь для обработки в asyncio
                         asyncio.run_coroutine_threadsafe(message_queue.put(event), loop)
                     else:
-                        logger.debug(f"VK: Ignoring personal event type={event.type}, to_me={getattr(event, 'to_me', 'N/A')}")
+                        logger.debug(
+                            f"VK: Ignoring personal event type={event.type}, to_me={getattr(event, 'to_me', 'N/A')}"
+                        )
         except Exception as e:
             logger.error(f"VK: LongPoll listener crashed: {e}")
             logger.error(f"VK: Error type: {type(e).__name__}")
@@ -964,27 +1243,32 @@ def create_vk_bot(
     def run_vk_polling():
         """Polling функция для получения сообщений"""
         import time
+
         logger.info("VK: Starting VK polling listener...")
         last_message_id = 0
 
         while True:
             try:
                 # Получаем новые сообщения
-                response = vk.messages.getConversations(count=20, filter='unread')
-                conversations = response.get('items', [])
+                response = vk.messages.getConversations(count=20, filter="unread")
+                conversations = response.get("items", [])
 
                 for conv in conversations:
-                    conversation = conv.get('conversation', {})
-                    last_message = conv.get('last_message', {})
+                    conversation = conv.get("conversation", {})
+                    last_message = conv.get("last_message", {})
 
-                    if last_message and last_message.get('id', 0) > last_message_id:
-                        user_id = last_message.get('from_id', 0)
-                        text = last_message.get('text', '')
-                        message_id = last_message.get('id', 0)
+                    if last_message and last_message.get("id", 0) > last_message_id:
+                        user_id = last_message.get("from_id", 0)
+                        text = last_message.get("text", "")
+                        message_id = last_message.get("id", 0)
 
                         # Проверяем, что это сообщение пользователю (не от нас)
-                        if user_id > 0 and text:  # user_id > 0 означает пользователя, не сообщество
-                            logger.info(f"VK: Polled message from user {user_id}: {text}")
+                        if (
+                            user_id > 0 and text
+                        ):  # user_id > 0 означает пользователя, не сообщество
+                            logger.info(
+                                f"VK: Polled message from user {user_id}: {text}"
+                            )
 
                             # Создаем объект события для совместимости
                             class MockEvent:
@@ -994,7 +1278,9 @@ def create_vk_bot(
                                     self.message_id = message_id
 
                             event = MockEvent(user_id, text, message_id)
-                            asyncio.run_coroutine_threadsafe(message_queue.put(event), loop)
+                            asyncio.run_coroutine_threadsafe(
+                                message_queue.put(event), loop
+                            )
 
                             # Помечаем как прочитанное
                             try:
@@ -1035,7 +1321,9 @@ def create_vk_bot(
             logger.debug("VK: Waiting for message in queue...")
             # Ждем новое сообщение из очереди
             event = await message_queue.get()
-            logger.info(f"VK: Processing message from queue: user {event.user_id}, text: {event.text}")
+            logger.info(
+                f"VK: Processing message from queue: user {event.user_id}, text: {event.text}"
+            )
             await handle_vk_message(event)
             message_queue.task_done()
             logger.debug("VK: Message processed")
