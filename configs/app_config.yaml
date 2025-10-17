@@ -5,8 +5,19 @@ speech:
   # Язык распознавания
   language: "ru"
   
-  # Модель Whisper (через OpenAI API)
-  model: "whisper-1"
+  # Локальная модель Whisper
+  # Доступные размеры: tiny, base, small, medium, large
+  # tiny (39MB) - быстро, низкое качество
+  # base (74MB) - базовое качество
+  # small (244MB) - хорошее качество
+  # medium (1.5GB) - отличное качество (рекомендуется)
+  # large (2.9GB) - максимальное качество, медленно
+  whisper_model: "small"
+  
+  # Путь к FFmpeg (оставьте пустым для автопоиска)
+  # Windows пример: "C:\\ffmpeg\\bin\\ffmpeg.exe"
+  # Linux/Mac пример: "/usr/bin/ffmpeg"
+  ffmpeg_path: "C:\\ffmpeg\\bin\\ffmpeg.exe"
 
 # TTL сессии в секундах (по умолчанию 24 часа)
 session_ttl: 86400

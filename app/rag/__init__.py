@@ -5,6 +5,7 @@ RAG (Retrieval-Augmented Generation) подсистема
 - RAGService - основной сервис для работы с RAG
 - KnowledgeBase - работа с базой знаний
 - Retrieval функции
+- WhisperService - локальное распознавание речи
 """
 
 from .service import (
@@ -15,6 +16,7 @@ from .service import (
     SpeechToTextService,
 )
 from .retrieval import KnowledgeBase
+from .whisper_service import WhisperService
 
 __all__ = [
     "RAGService",
@@ -23,4 +25,5 @@ __all__ = [
     "ToxicityClassifier",
     "SpeechToTextService",
     "KnowledgeBase",
+    "WhisperService",
 ]

@@ -17,9 +17,11 @@ rank-bm25
 langchain-community
 nltk
 transformers
-SpeechRecognition
-pydub
-imageio[ffmpeg]
+# Локальное распознавание речи с помощью Whisper
+openai-whisper
+torch
+ffmpeg-python
+imageio[ffmpeg]  # Резервный вариант FFmpeg для Windows
 bcrypt
 pyngrok
 vk_api

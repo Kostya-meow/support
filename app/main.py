@@ -261,9 +261,14 @@ async def update_popularity_scores():
 
 
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    logger.info("?? Starting application lifespan...")
+    logger.info("🚀 Starting application lifespan...")
     await init_db()
     app.state.connection_manager = connection_manager
+
+    # Загружаем полный конфиг (RAG + App)
+    from app.config import load_config
+
+    full_config = load_config()
 
     rag_config = load_rag_config()
     embeddings_cfg = rag_config.get("embeddings", {})
@@ -276,7 +281,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await knowledge_base.ensure_loaded()
     app.state.knowledge_base = knowledge_base
 
-    rag_service = RAGService(rag_config)
+    # Используем полный конфиг для RAGService (с настройками speech)
+    rag_service = RAGService(full_config)
     await rag_service.prepare()
     app.state.rag = rag_service
 

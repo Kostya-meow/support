@@ -85,17 +85,35 @@ class ToxicityClassifier:
 
 
 class SpeechToTextService:
-    def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
-        """Инициализация сервиса speech-to-text"""
-        import speech_recognition as sr
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> None:
+        """Инициализация сервиса speech-to-text с локальной моделью Whisper"""
+        from app.rag.whisper_service import WhisperService
 
-        self.recognizer = sr.Recognizer()
+        # Получаем настройки из конфигурации
+        speech_cfg = (config or {}).get("speech", {})
+        model_name = speech_cfg.get("whisper_model", "medium")
+        ffmpeg_path = speech_cfg.get("ffmpeg_path", "") or None
+
+        logger.info(f"🔧 Инициализация SpeechToTextService")
+        logger.info(f"   - Модель: {model_name}")
+        logger.info(f"   - FFmpeg путь из конфига: {ffmpeg_path}")
+
+        # Используем локальную модель Whisper
+        self.whisper = WhisperService(model_name=model_name, ffmpeg_path=ffmpeg_path)
+        logger.info(
+            f"SpeechToTextService инициализирован с моделью Whisper '{model_name}'"
+        )
 
     async def transcribe_audio(
         self, audio_file_path: str, language: str = "ru-RU"
     ) -> str:
         """
-        Преобразование аудио в текст с помощью Google Speech Recognition
+        Преобразование аудио в текст с помощью локальной модели Whisper
 
         Args:
             audio_file_path: Путь к аудио файлу
@@ -104,74 +122,11 @@ class SpeechToTextService:
         Returns:
             Транскрибированный текст
         """
-        import speech_recognition as sr
-        import tempfile
-        import os
+        # Конвертируем формат языка из ru-RU в ru для Whisper
+        lang_code = language.split("-")[0] if "-" in language else language
 
-        wav_file_path = None
-        try:
-            # Попытка прямого чтения (если вдруг WAV)
-            try:
-                with sr.AudioFile(audio_file_path) as source:
-                    audio_data = self.recognizer.record(source)
-                text = self.recognizer.recognize_google(audio_data, language=language)
-                return text.strip()
-            except Exception as direct_error:
-                logger.info(
-                    f"Direct read failed: {direct_error}, пробуем конвертацию через ffmpeg..."
-                )
-                # Конвертация через ffmpeg (imageio_ffmpeg)
-                try:
-                    import imageio_ffmpeg
-
-                    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-                except Exception as ffmpeg_err:
-                    logger.error(f"FFmpeg not found: {ffmpeg_err}")
-                    return "Для распознавания голосовых сообщений требуется ffmpeg. Попробуйте отправить текст или WAV-файл."
-                with tempfile.NamedTemporaryFile(
-                    suffix=".wav", delete=False
-                ) as wav_temp:
-                    wav_file_path = wav_temp.name
-                ffmpeg_cmd = [
-                    ffmpeg_path,
-                    "-y",
-                    "-i",
-                    audio_file_path,
-                    "-acodec",
-                    "pcm_s16le",
-                    "-ar",
-                    "16000",
-                    "-ac",
-                    "1",
-                    wav_file_path,
-                ]
-                import subprocess
-
-                result = subprocess.run(ffmpeg_cmd, capture_output=True)
-                if result.returncode != 0:
-                    logger.error(
-                        f"FFmpeg conversion failed: {result.stderr.decode(errors='ignore')}"
-                    )
-                    return "Ошибка конвертации аудио. Попробуйте записать голосовое снова или отправьте текст."
-                try:
-                    with sr.AudioFile(wav_file_path) as source:
-                        audio_data = self.recognizer.record(source)
-                    text = self.recognizer.recognize_google(
-                        audio_data, language=language
-                    )
-                    return text.strip()
-                except Exception as recog_error:
-                    logger.error(f"SpeechRecognition error after ffmpeg: {recog_error}")
-                    return "Не удалось распознать голосовое сообщение. Попробуйте записать снова или отправьте текст."
-        except Exception as e:
-            logger.error(f"SpeechRecognition error: {e}")
-            return "Не удалось распознать голосовое сообщение. Отправьте текст или WAV-файл."
-        finally:
-            if wav_file_path and os.path.exists(wav_file_path):
-                try:
-                    os.unlink(wav_file_path)
-                except Exception as del_err:
-                    logger.warning(f"Не удалось удалить временный файл: {del_err}")
+        # Whisper работает локально и поддерживает все популярные форматы
+        return await self.whisper.transcribe_audio(audio_file_path, language=lang_code)
 
 
 class RAGService:
@@ -280,7 +235,9 @@ class RAGService:
         self.chat_histories: dict[int, list[ChatMessage]] = defaultdict(list)
 
         # Инициализация Speech-to-Text сервиса
-        self.speech_to_text = SpeechToTextService(api_key=api_key, base_url=base_url)
+        self.speech_to_text = SpeechToTextService(
+            api_key=api_key, base_url=base_url, config=config
+        )
 
         # Кеш для саммари тикетов (простой in-memory кеш)
         self._summary_cache: dict[int, str] = {}
@@ -380,9 +337,12 @@ class RAGService:
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        print(1, messages)
+        print(2, response)
         content = response.choices[0].message.content.strip()
         if self.strip_thinking_tags_enabled:
             content = _strip_thinking_tags(content)
+        print(3, content)
         return content
 
     def _check_toxicity(self, query: str) -> float:
@@ -482,8 +442,15 @@ class RAGService:
         if not self.operator_intent_prompt:
             return False, 0.0
         messages = [
-            {"role": "system", "content": self.operator_intent_prompt},
-            {"role": "user", "content": user_query},
+            {
+                "role": "user",
+                "content": (
+                    f"{self.operator_intent_prompt}\n\n"
+                    f"Определи вероятность (0–1), что это запрос оператора.\n"
+                    f"Ответь только числом.\n\n"
+                    f"Текст: {user_query}"
+                ),
+            }
         ]
         try:
             score_str = self._call_llm(messages, temperature=0.0, max_tokens=64)
@@ -499,8 +466,14 @@ class RAGService:
         if not self.evaluation_prompt:
             return answer, 0.0
         messages = [
-            {"role": "user", "content": self.evaluation_prompt},
-            {"role": "user", "content": answer},
+            {
+                "role": "user",
+                "content": (
+                    f"{self.evaluation_prompt}\n\n"
+                    f"Вот ответ, который нужно оценить:\n{answer}\n\n"
+                    f"Верни число от 0 до 1. Ответь только числом."
+                ),
+            }
         ]
         try:
             score_str = self._call_llm(messages, temperature=0.0, max_tokens=64)
