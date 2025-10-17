@@ -165,3 +165,13 @@ async def count_knowledge_entries(session: AsyncSession) -> int:
     )
     count = result.scalar_one()
     return int(count or 0)
+
+
+async def get_random_knowledge_entry(
+    session: AsyncSession,
+) -> models.KnowledgeEntry | None:
+    """Получить случайную запись из базы знаний"""
+    result = await session.execute(
+        select(models.KnowledgeEntry).order_by(func.random()).limit(1)
+    )
+    return result.scalar_one_or_none()

@@ -11,6 +11,7 @@ from typing import Optional
 
 from app.config import load_config, load_simulator_prompts
 from app.rag import RAGService
+from app.db import crud, database
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +107,8 @@ class SimulatorService:
         Генерирует вопрос из базы знаний
 
         Алгоритм:
-        1. Получаем случайный документ из БЗ
-        2. Используем LLM для генерации вопроса в стиле персонажа
+        1. Получаем случайный вопрос из БЗ
+        2. Используем LLM для перефразирования в стиле персонажа
         """
         # Fallback вопросы на случай ошибок
         fallback_questions = {
@@ -128,56 +129,55 @@ class SimulatorService:
             ],
         }
 
-        # Получаем документы из БЗ
+        # Получаем случайный вопрос из БЗ
         try:
-            # Запрашиваем случайную тему
-            topics = [
-                "пароль",
-                "VPN",
-                "принтер",
-                "доступ",
-                "программа",
-                "оборудование",
-                "интернет",
-            ]
-            topic = random.choice(topics)
+            # Получаем сессию БД для базы знаний
+            async for kb_session in database.get_knowledge_session():
+                # Получаем случайную запись
+                kb_entry = await crud.get_random_knowledge_entry(kb_session)
 
-            # Генерируем вопрос через LLM
-            character_info = self.characters[session.character]
+                if not kb_entry:
+                    raise ValueError("No knowledge entries found in database")
 
-            prompt = (
-                self.simulator_prompts.get("question_generation", {})
-                .get("base_prompt", "")
-                .format(
-                    character_name=character_info["name"],
-                    character_description=character_info["description"],
-                    topic=topic,
+                # Перефразируем вопрос в стиле персонажа
+                character_info = self.characters[session.character]
+
+                # Создаем промпт для перефразирования
+                rephrase_prompt = (
+                    f"Ты — {character_info['name']}, {character_info['description']}.\n\n"
+                    f"Перефразируй следующий вопрос в своем стиле:\n\n"
+                    f"{kb_entry.question}\n\n"
+                    f"ВАЖНО:\n"
+                    f"- Новичок Вася: используй простые слова, может не знать терминов, говори неуверенно\n"
+                    f"- Специалист Ольга: говори точно и профессионально, знаешь что хочешь\n"
+                    f"- Директор Игорь: требовательный тон, добавь срочность, можешь быть недовольным\n\n"
+                    f"Верни ТОЛЬКО перефразированный вопрос (1-2 предложения), без объяснений."
                 )
-            )
 
-            # Используем LLM напрямую через RAG сервис
-            question_text = self._generate_with_llm(prompt)
+                # Генерируем перефразированный вопрос
+                rephrased_question = self._generate_with_llm(rephrase_prompt)
 
-            # Проверяем что получили нормальный вопрос
-            if (
-                not question_text
-                or len(question_text) < 10
-                or "ошибка" in question_text.lower()
-            ):
-                raise ValueError("Invalid question generated")
+                # Проверяем что получили нормальный вопрос
+                if (
+                    not rephrased_question
+                    or len(rephrased_question) < 10
+                    or "ошибка" in rephrased_question.lower()
+                ):
+                    # Если перефразирование не удалось, используем оригинальный вопрос
+                    rephrased_question = kb_entry.question
 
-            # Получаем контекст из БЗ по этому вопросу
-            context = await self._get_knowledge_context(question_text)
+                # Используем ответ из БЗ как контекст
+                question = SimulatorQuestion(
+                    question=rephrased_question,
+                    context=kb_entry.answer,
+                    difficulty=session.character,
+                )
 
-            question = SimulatorQuestion(
-                question=question_text, context=context, difficulty=session.character
-            )
-
-            session.current_question_data = question
-            return question
+                session.current_question_data = question
+                return question
 
         except Exception as e:
-            logger.error(f"Failed to generate question via LLM: {e}", exc_info=True)
+            logger.error(f"Failed to get question from KB: {e}", exc_info=True)
             # Fallback на предопределенные вопросы
             questions_list = fallback_questions.get(
                 session.character, fallback_questions["medium"]
