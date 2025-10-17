@@ -21,7 +21,7 @@ import html
 callback_map: dict[str, str] = {}
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app import tickets_crud as crud, models
+from app.db import tickets_crud as crud, models
 from app.config import load_telegram_responses
 from app.rag import RAGResult, RAGService
 from app.services import ConnectionManager

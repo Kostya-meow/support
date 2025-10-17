@@ -764,7 +764,7 @@ async def api_finish(
     if ticket.status in [models.TicketStatus.CLOSED, models.TicketStatus.ARCHIVED]:
         raise HTTPException(status_code=400, detail="Ticket already closed")
 
-    finish_text = 'Оператор завершил заявку. Если потребуется помощь, напишите снова или нажмите кнопку "Позвать оператора".'
+    finish_text = 'Оператор завершил заявку. Если потребуется помощь, напишите снова "Позови оператора".'
 
     bot: Bot | None = request.app.state.bot
     # Send finish notification to the correct platform

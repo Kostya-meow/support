@@ -8,8 +8,6 @@ from app.db.database import (
     init_db,
     TicketsSessionLocal,
     KnowledgeSessionLocal,
-    KnowledgeBase as KnowledgeDBBase,
-    TicketsBase,
 )
 
 # SQLAlchemy models
@@ -23,8 +21,6 @@ from app.db.models import (
 # Pydantic schemas
 from app.db.schemas import (
     TicketRead,
-    TicketCreate,
-    TicketUpdate,
     MessageRead,
     MessageCreate,
     ConversationRead,
@@ -43,17 +39,14 @@ __all__ = [
     "init_db",
     "TicketsSessionLocal",
     "KnowledgeSessionLocal",
-    "KnowledgeDBBase",
-    "TicketsBase",
     # Models
     "Ticket",
     "Message",
     "KnowledgeEntry",
     "TicketStatus",
+    "models",
     # Schemas
     "TicketRead",
-    "TicketCreate",
-    "TicketUpdate",
     "MessageRead",
     "MessageCreate",
     "ConversationRead",

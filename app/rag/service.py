@@ -19,7 +19,7 @@ from sentence_transformers import SentenceTransformer
 from transformers import BertForSequenceClassification, BertTokenizer
 import torch
 
-from app import tickets_crud as crud
+from app.db import tickets_crud as crud
 from app.db import KnowledgeSessionLocal
 
 logger = logging.getLogger(__name__)

@@ -8,13 +8,17 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app import crud, models
+from app.db import crud, models
 
 DEFAULT_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 class KnowledgeBase:
-    def __init__(self, session_maker: async_sessionmaker[AsyncSession], model_name: str = DEFAULT_MODEL_NAME) -> None:
+    def __init__(
+        self,
+        session_maker: async_sessionmaker[AsyncSession],
+        model_name: str = DEFAULT_MODEL_NAME,
+    ) -> None:
         self._session_maker = session_maker
         self._model_name = model_name
         self._model: SentenceTransformer | None = None
@@ -44,7 +48,9 @@ class KnowledgeBase:
 
         serialized = [embedding.tobytes() for embedding in embeddings]
         async with self._session_maker() as session:
-            await crud.replace_knowledge_entries(session, zip(questions, answers, serialized))
+            await crud.replace_knowledge_entries(
+                session, zip(questions, answers, serialized)
+            )
             entries = await crud.load_knowledge_entries(session)
 
         await self._update_state_from_entries(entries)
@@ -97,11 +103,13 @@ class KnowledgeBase:
         """Возвращает запись базы знаний по id (или None)."""
         async with self._state_lock:
             for e in self._entries:
-                if e.get('id') == entry_id:
+                if e.get("id") == entry_id:
                     return e.copy()
         return None
 
-    async def _update_state_from_entries(self, entries: Iterable[models.KnowledgeEntry]) -> None:
+    async def _update_state_from_entries(
+        self, entries: Iterable[models.KnowledgeEntry]
+    ) -> None:
         entries = list(entries)
         if not entries:
             await self._update_state([], None)
@@ -119,7 +127,7 @@ class KnowledgeBase:
                     "answer": entry.answer,
                 }
             )
-            
+
             # Добавляем векторы только для записей с embedding'ами
             if entry.embedding is not None:
                 array = np.frombuffer(entry.embedding, dtype=np.float32)
@@ -127,7 +135,9 @@ class KnowledgeBase:
                     dim = array.shape[0]
                 else:
                     if array.shape[0] != dim:
-                        raise ValueError("Inconsistent embedding dimensions in database")
+                        raise ValueError(
+                            "Inconsistent embedding dimensions in database"
+                        )
                 vectors.append(array)
 
         # Если нет embedding'ов, создаем пустой индекс
@@ -142,7 +152,9 @@ class KnowledgeBase:
 
         await self._update_state(simplified_entries, index)
 
-    async def _update_state(self, entries: list[dict], index: faiss.Index | None) -> None:
+    async def _update_state(
+        self, entries: list[dict], index: faiss.Index | None
+    ) -> None:
         async with self._state_lock:
             self._entries = entries
             self._index = index
@@ -152,7 +164,9 @@ class KnowledgeBase:
         async with self._model_lock:
             if self._model is None:
                 loop = asyncio.get_running_loop()
-                self._model = await loop.run_in_executor(None, SentenceTransformer, self._model_name)
+                self._model = await loop.run_in_executor(
+                    None, SentenceTransformer, self._model_name
+                )
         return self._model
 
 
