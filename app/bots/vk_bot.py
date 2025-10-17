@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 # Module-level VK API client (set when create_vk_bot initializes)
 VK_API: any = None
 
+# Module-level VK responses configuration
+vk_responses: dict = {}
+
 # transient per-user pending options when keyboard isn't supported by client
 pending_options: dict[int, list[str]] = {}
 
@@ -64,8 +67,9 @@ def create_vk_bot(
     vk_session = vk_api.VkApi(token=vk_token)
     vk = vk_session.get_api()
     # expose module-level client for other modules to use when needed
-    global VK_API
+    global VK_API, vk_responses
     VK_API = vk
+    vk_responses = load_vk_responses()
 
     # Флаг типа longpoll
     is_bot_longpoll = False  # Начинаем с личных сообщений
@@ -476,9 +480,12 @@ def create_vk_bot(
         """Отправляет статус 'печатает' в VK"""
         try:
             logger.debug(f"VK: Sending typing status to user {user_id}")
-            vk.messages.setActivity(user_id=user_id, type="typing")
+            # VK API: setActivity показывает статус "печатает" на 10 секунд
+            await asyncio.to_thread(
+                vk.messages.setActivity, user_id=user_id, type="typing"
+            )
         except Exception as e:
-            logger.debug(f"VK: Failed to send typing status to {user_id}: {e}")
+            logger.warning(f"VK: Failed to send typing status to {user_id}: {e}")
 
     def _build_vk_keyboard(buttons: list[list[str]]) -> dict | None:
         """Builds VK inline keyboard-like payload as a simple JSON keyboard.
@@ -668,7 +675,6 @@ def create_vk_bot(
 
     async def _handle_vk_voice_message(user_id: int, attachment: dict, message_id: int):
         """Обрабатывает голосовое сообщение из VK"""
-        vk_responses = load_vk_responses()
         try:
             logger.info(f"VK: Processing voice message from user {user_id}")
 
@@ -740,7 +746,6 @@ def create_vk_bot(
             await _send_vk_typing(user_id)
 
             # Уведомляем пользователя о начале обработки
-            vk_responses = load_vk_responses()
             processing_msg = vk_responses.get(
                 "processing_message", "⏳ Обрабатываю ваш запрос..."
             )
