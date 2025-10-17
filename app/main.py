@@ -361,6 +361,12 @@ app = FastAPI(title="Support Desk", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint для Docker"""
+    return {"status": "ok", "service": "Support Desk"}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     """Главная страница - перенаправляет после аутентификации пользователей"""

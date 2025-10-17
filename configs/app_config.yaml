@@ -14,10 +14,11 @@ speech:
   # large (2.9GB) - максимальное качество, медленно
   whisper_model: "small"
   
-  # Путь к FFmpeg (оставьте пустым для автопоиска)
-  # Windows пример: "C:\\ffmpeg\\bin\\ffmpeg.exe"
-  # Linux/Mac пример: "/usr/bin/ffmpeg"
-  ffmpeg_path: "C:\\ffmpeg\\bin\\ffmpeg.exe"
+  # Путь к FFmpeg
+  # Windows (без Docker): "C:\\ffmpeg\\bin\\ffmpeg.exe"
+  # Docker: "" (пусто - FFmpeg уже установлен в контейнере)
+  # Linux/Mac: "" (пусто - автопоиск в системе)
+  ffmpeg_path: ""
 
 # TTL сессии в секундах (по умолчанию 24 часа)
 session_ttl: 86400
