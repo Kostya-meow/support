@@ -4,7 +4,6 @@
 from app.db.database import (
     get_tickets_session,
     get_knowledge_session,
-    get_session,
     init_db,
     TicketsSessionLocal,
     KnowledgeSessionLocal,
@@ -14,7 +13,6 @@ from app.db.database import (
 from app.db.models import (
     Ticket,
     Message,
-    KnowledgeEntry,
     DocumentChunk,
     TicketStatus,
 )
@@ -29,31 +27,26 @@ from app.db.schemas import (
 )
 
 # CRUD operations
-from app.db import crud
 from app.db import tickets_crud
 
 __all__ = [
     # Database
     "get_tickets_session",
     "get_knowledge_session",
-    "get_session",
     "init_db",
     "TicketsSessionLocal",
     "KnowledgeSessionLocal",
     # Models
     "Ticket",
     "Message",
-    "KnowledgeEntry",
     "DocumentChunk",
     "TicketStatus",
-    "models",
     # Schemas
     "TicketRead",
     "MessageRead",
     "MessageCreate",
     "ConversationRead",
     "KnowledgeStats",
-    # CRUD modules
-    "crud",
+    # CRUD module
     "tickets_crud",
 ]

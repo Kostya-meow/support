@@ -16,7 +16,7 @@ async def search_knowledge_base(query: str, category: str = None) -> str:
 
     try:
         from app.db.database import KnowledgeSessionLocal
-        from app.db import crud
+        from app.db import tickets_crud as crud
         from sentence_transformers import SentenceTransformer
         import numpy as np
 

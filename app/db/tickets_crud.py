@@ -279,36 +279,21 @@ async def mark_ticket_messages_as_read(
     return result.rowcount
 
 
-# ========== KNOWLEDGE ==========
+# ========== KNOWLEDGE (DocumentChunks) ==========
 
 
-async def replace_knowledge_entries(
-    session: AsyncSession,
-    entries: Iterable[tuple[str, str, bytes]],
-) -> None:
-    """Заменить все записи в базе знаний."""
-    await session.execute(delete(models.KnowledgeEntry))
-    session.add_all(
-        [
-            models.KnowledgeEntry(question=question, answer=answer, embedding=embedding)
-            for question, answer, embedding in entries
-        ]
-    )
-    await session.commit()
-
-
-async def load_knowledge_entries(session: AsyncSession) -> list[models.KnowledgeEntry]:
-    """Загрузить все записи базы знаний."""
+async def load_all_chunks(session: AsyncSession) -> list[models.DocumentChunk]:
+    """Загрузить все чанки документов из базы знаний."""
     result = await session.execute(
-        select(models.KnowledgeEntry).order_by(models.KnowledgeEntry.id)
+        select(models.DocumentChunk).order_by(models.DocumentChunk.id)
     )
     return result.scalars().all()
 
 
-async def count_knowledge_entries(session: AsyncSession) -> int:
-    """Подсчитать количество записей в базе знаний."""
+async def count_document_chunks(session: AsyncSession) -> int:
+    """Подсчитать количество чанков в базе знаний."""
     result = await session.execute(
-        select(func.count()).select_from(models.KnowledgeEntry)
+        select(func.count()).select_from(models.DocumentChunk)
     )
     count = result.scalar_one()
     return int(count or 0)
@@ -565,3 +550,16 @@ async def get_average_resolution_time(session: AsyncSession) -> Optional[float]:
 
     avg_minutes = result.scalar_one()
     return round(avg_minutes, 1) if avg_minutes else None
+
+
+# ========== DOCUMENT CHUNKS - Случайный выбор ==========
+
+
+async def get_random_chunk(
+    session: AsyncSession,
+) -> Optional[models.DocumentChunk]:
+    """Получить случайный чанк документа из базы знаний."""
+    result = await session.execute(
+        select(models.DocumentChunk).order_by(func.random()).limit(1)
+    )
+    return result.scalar_one_or_none()

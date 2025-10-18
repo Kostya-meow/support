@@ -62,14 +62,3 @@ async def get_knowledge_session() -> AsyncIterator[AsyncSession]:
     """Получить сессию для работы с базой знаний."""
     async with KnowledgeSessionLocal() as session:
         yield session
-
-
-# Обратная совместимость
-async def get_session() -> AsyncIterator[AsyncSession]:
-    """Обратная совместимость - использует сессию заявок."""
-    async with TicketsSessionLocal() as session:
-        yield session
-
-
-# Экспорт главной сессии для обратной совместимости
-AsyncSessionLocal = TicketsSessionLocal

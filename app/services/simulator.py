@@ -11,7 +11,7 @@ from typing import Optional
 
 from app.config import load_config, load_simulator_prompts
 from app.rag import RAGService
-from app.db import crud, database
+from app.db import tickets_crud as crud, database
 
 logger = logging.getLogger(__name__)
 
@@ -130,10 +130,10 @@ class SimulatorService:
             ],
         }
 
-        # Пытаемся получить чанк из новой системы
+        # Получаем чанк из системы DocumentChunk
         try:
             async for kb_session in database.get_knowledge_session():
-                # Пытаемся получить случайный чанк
+                # Получаем случайный чанк
                 chunk = await crud.get_random_chunk(kb_session)
 
                 if chunk and chunk.content:
@@ -169,44 +169,8 @@ class SimulatorService:
                         session.current_question_data = question
                         return question
 
-                # Если чанков нет, пробуем старую систему (вопрос/ответ)
-                kb_entry = await crud.get_random_knowledge_entry(kb_session)
-
-                if kb_entry:
-                    # Используем старую систему
-                    character_info = self.characters[session.character]
-
-                    # Получаем промпт из конфига и форматируем
-                    rephrase_prompt_template = self.simulator_prompts.get(
-                        "question_generation", {}
-                    ).get("rephrase_prompt", "")
-
-                    rephrase_prompt = rephrase_prompt_template.format(
-                        character_name=character_info["name"],
-                        character_description=character_info["description"],
-                        question=kb_entry.question,
-                    )
-
-                    rephrased_question = self._generate_with_llm(rephrase_prompt)
-
-                    if (
-                        not rephrased_question
-                        or len(rephrased_question) < 10
-                        or "ошибка" in rephrased_question.lower()
-                    ):
-                        rephrased_question = kb_entry.question
-
-                    question = SimulatorQuestion(
-                        question=rephrased_question,
-                        context=kb_entry.answer,
-                        difficulty=session.character,
-                    )
-
-                    session.current_question_data = question
-                    return question
-
-                # Если ничего не нашли
-                raise ValueError("No chunks or knowledge entries found in database")
+                # Если чанков нет
+                raise ValueError("No chunks found in database")
 
         except Exception as e:
             logger.error(f"Failed to generate question from chunks: {e}", exc_info=True)

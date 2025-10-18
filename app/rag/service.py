@@ -282,7 +282,7 @@ class RAGService:
 
     async def prepare(self) -> None:
         async with KnowledgeSessionLocal() as session:
-            entries = await crud.load_knowledge_entries(session)
+            entries = await crud.load_all_chunks(session)
         self._load_documents(entries)
 
     async def reload(self) -> None:
@@ -310,14 +310,13 @@ class RAGService:
         vectors: list[np.ndarray] = []
         bm25_corpus: list[list[str]] = []
         for idx, entry in enumerate(entries):
-            question = entry.question.strip()
-            answer = entry.answer.strip()
-            content = f"Вопрос: {question}\nОтвет: {answer}"
+            # DocumentChunk содержит только content, используем его как question и answer
+            content = entry.content.strip()
             documents.append(
                 {
                     "id": idx,
-                    "question": question,
-                    "answer": answer,
+                    "question": content,  # Используем content как вопрос
+                    "answer": content,  # И как ответ
                     "content": content,
                 }
             )

@@ -35,13 +35,12 @@ from app.config import load_rag_config, load_app_config
 from app.db import (
     models,
     tickets_crud as crud,
-    crud as knowledge_crud,  # Для работы с чанками
+    tickets_crud,  # Для работы с чанками knowledge
     get_tickets_session,
     get_knowledge_session,
     init_db,
     TicketsSessionLocal,
     KnowledgeSessionLocal,
-    get_session,
     TicketRead,
     KnowledgeStats,
     MessageCreate,
@@ -115,153 +114,6 @@ async def _broadcast_conversations_update(
     await manager.broadcast_conversations(_serialize_tickets(tickets))
 
 
-async def update_popularity_scores():
-    """Фоновая задача для обновления популярности вопросов каждые 5 минут"""
-    from sqlalchemy import select, text
-    from app.db.models import KnowledgeEntry, Message
-    from datetime import datetime, timedelta
-    import numpy as np
-    from sentence_transformers import SentenceTransformer
-
-    # Получаем embedder из конфига
-    embedder = None
-
-    while True:
-        try:
-            await asyncio.sleep(300)  # 5 минут
-
-            logger.info("Обновление счетчиков популярности запросов...")
-
-            # Инициализируем embedder при первом запуске
-            if embedder is None:
-                rag_config = load_rag_config()
-                embedding_cfg = rag_config.get("embeddings", {})
-                model_name = embedding_cfg.get(
-                    "model_name", "ai-forever/sbert_large_nlu_ru"
-                )
-                device = embedding_cfg.get("device", "cpu")
-                embedder = SentenceTransformer(model_name, device=device)
-                logger.info(f"Embedder инициализирован: {model_name}")
-
-            async with KnowledgeSessionLocal() as k_session:
-                async with TicketsSessionLocal() as t_session:
-                    # Получаем все сообщения за последние 24 часа
-                    yesterday = datetime.utcnow() - timedelta(hours=24)
-
-                    # Получаем все вопросы пользователей (не системные)
-                    stmt = select(Message).where(
-                        Message.created_at >= yesterday,
-                        Message.is_system == False,
-                        Message.sender == "user",
-                    )
-                    result = await t_session.execute(stmt)
-                    recent_messages = result.scalars().all()
-
-                    # Получаем все записи базы знаний
-                    kb_stmt = select(KnowledgeEntry)
-                    kb_result = await k_session.execute(kb_stmt)
-                    kb_entries = kb_result.scalars().all()
-
-                    if not kb_entries:
-                        logger.info("Нет записей в базе знаний")
-                        continue
-
-                    if not recent_messages:
-                        logger.info(
-                            "Нет пользовательских сообщений за последние 24 часа"
-                        )
-                        # Сбрасываем все счетчики на 0
-                        await k_session.execute(
-                            text("UPDATE knowledge_entries SET popularity_score = 0.0")
-                        )
-                        await k_session.commit()
-                        continue
-
-                    # Получаем текст всех пользовательских сообщений
-                    # Модель Message использует поле `text`, не `content`
-                    user_queries = [
-                        msg.text
-                        for msg in recent_messages
-                        if getattr(msg, "text", None)
-                    ]
-                    if not user_queries:
-                        logger.info("Нет текстовых сообщений от пользователей")
-                        continue
-
-                    # Вычисляем embeddings для пользовательских запросов
-                    logger.info(
-                        f"Вычисление embeddings для {len(user_queries)} запросов..."
-                    )
-                    query_embeddings = await asyncio.to_thread(
-                        embedder.encode, user_queries, convert_to_numpy=True
-                    )
-
-                    # Подсчитываем популярность каждого вопроса на основе similarity
-                    question_scores = {}
-                    for entry in kb_entries:
-                        if not entry.embedding:
-                            # Если нет embedding, вычисляем его
-                            entry_embedding = await asyncio.to_thread(
-                                embedder.encode, entry.question, convert_to_numpy=True
-                            )
-                        else:
-                            # Используем существующий embedding
-                            entry_embedding = np.frombuffer(
-                                entry.embedding, dtype=np.float32
-                            )
-
-                        # Вычисляем cosine similarity с каждым запросом пользователя
-                        similarities = []
-                        for query_emb in query_embeddings:
-                            # Cosine similarity
-                            similarity = np.dot(entry_embedding, query_emb) / (
-                                np.linalg.norm(entry_embedding)
-                                * np.linalg.norm(query_emb)
-                            )
-                            similarities.append(similarity)
-
-                        # Считаем среднее значение среди similarity > 0.7 (приблизительно)
-                        relevant_count = sum(1 for sim in similarities if sim > 0.7)
-                        question_scores[entry.id] = relevant_count
-
-                    # Нормализуем значения в диапазоне 0-1
-                    max_count = max(question_scores.values()) if question_scores else 1
-                    if max_count == 0:
-                        max_count = 1
-
-                    # Обновляем базу данных
-                    for entry_id, count in question_scores.items():
-                        normalized_score = count / max_count
-                        await k_session.execute(
-                            text(
-                                "UPDATE knowledge_entries SET popularity_score = :score WHERE id = :id"
-                            ),
-                            {"score": normalized_score, "id": entry_id},
-                        )
-
-                    await k_session.commit()
-                    logger.info(
-                        f"✓ Обновлено {len(question_scores)} записей. Max count: {max_count}"
-                    )
-
-                    # Выводим ТОП-3 для отладки
-                    top_entries = sorted(
-                        question_scores.items(), key=lambda x: x[1], reverse=True
-                    )[:3]
-                    for entry_id, count in top_entries:
-                        entry = next((e for e in kb_entries if e.id == entry_id), None)
-                        if entry:
-                            logger.info(
-                                f"  ТОП: '{entry.question[:50]}...' - {count} релевантных запросов"
-                            )
-
-        except asyncio.CancelledError:
-            logger.info("Задача обновления счетчиков остановлена")
-            break
-        except Exception as e:
-            logger.exception(f"Ошибка при обновлении счетчиков: {e}")
-
-
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("🚀 Starting application lifespan...")
     await init_db()
@@ -292,7 +144,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if token:
         bot = Bot(token=token)
-        # Pass rag_service to dispatcher for Telegram bot 
+        # Pass rag_service to dispatcher for Telegram bot
         dispatcher = create_dispatcher(
             TicketsSessionLocal, connection_manager, rag_service, None
         )
@@ -326,10 +178,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         logger.warning("VK_ACCESS_TOKEN is not set. VK integration is disabled.")
         app.state.vk_bot = None
-
-    # Запускаем фоновую задачу обновления популярности
-    popularity_task = asyncio.create_task(update_popularity_scores())
-    logger.info("✓ Фоновая задача обновления популярности запущена")
 
     try:
         yield
@@ -455,7 +303,7 @@ async def get_user_permissions_api(request: Request):
 @require_permission("knowledge")
 async def knowledge_admin(request: Request):
     async with KnowledgeSessionLocal() as session:
-        total = await knowledge_crud.count_chunks(session)
+        total = await tickets_crud.count_chunks(session)
     return templates.TemplateResponse(
         "knowledge.html",
         {"request": request, "entry_count": total},
@@ -483,113 +331,6 @@ async def faq_page(request: Request):
     return templates.TemplateResponse("faq.html", {"request": request})
 
 
-@app.get("/api/faq")
-async def get_faq(session: AsyncSession = Depends(get_knowledge_session)):
-    """API для получения всех вопросов отсортированных по популярности"""
-    from sqlalchemy import select, desc
-    from app.db.models import KnowledgeEntry
-
-    # Получаем все записи, отсортированные по популярности
-    stmt = select(KnowledgeEntry).order_by(desc(KnowledgeEntry.popularity_score))
-    result = await session.execute(stmt)
-    entries = result.scalars().all()
-
-    # Формируем ответ
-    items = []
-    for entry in entries:
-        items.append(
-            {
-                "id": entry.id,
-                "question": entry.question,
-                "answer": entry.answer,
-                "popularity_score": entry.popularity_score,
-            }
-        )
-
-    return {"items": items}
-
-
-@app.get("/api/faq/search")
-async def search_faq(q: str, session: AsyncSession = Depends(get_knowledge_session)):
-    """Поиск вопросов в FAQ по векторным embeddings"""
-    from sqlalchemy import select
-    from app.db.models import KnowledgeEntry
-    import numpy as np
-
-    if not q or len(q.strip()) < 2:
-        return {"items": []}
-
-    query_text = q.strip()
-
-    # Получаем knowledge_base из app state
-    knowledge_base = app.state.knowledge_base
-
-    try:
-        # Получаем embedding для запроса
-        query_embedding = await asyncio.to_thread(
-            knowledge_base.model.encode, query_text, convert_to_numpy=True
-        )
-
-        # Получаем все записи
-        stmt = select(KnowledgeEntry)
-        result = await session.execute(stmt)
-        entries = result.scalars().all()
-
-        if not entries:
-            return {"items": []}
-
-        # Вычисляем similarity для каждой записи
-        results = []
-        for entry in entries:
-            if entry.embedding:
-                entry_embedding = np.frombuffer(entry.embedding, dtype=np.float32)
-
-                # Cosine similarity
-                similarity = np.dot(query_embedding, entry_embedding) / (
-                    np.linalg.norm(query_embedding) * np.linalg.norm(entry_embedding)
-                )
-
-                # Добавляем только релевантные результаты (similarity > 0.3)
-                if similarity > 0.3:
-                    results.append(
-                        {
-                            "id": entry.id,
-                            "question": entry.question,
-                            "answer": entry.answer,
-                            "popularity_score": entry.popularity_score,
-                            "similarity": float(similarity),
-                        }
-                    )
-
-        # Сортируем по similarity (от большего к меньшему)
-        results.sort(key=lambda x: x["similarity"], reverse=True)
-
-        # Возвращаем топ-20 результатов
-        return {"items": results[:20]}
-
-    except Exception as e:
-        logger.exception(f"Search error: {e}")
-        # Fallback на простой текстовый поиск
-        stmt = select(KnowledgeEntry)
-        result = await session.execute(stmt)
-        entries = result.scalars().all()
-
-        query_lower = query_text.lower()
-        filtered = [
-            {
-                "id": e.id,
-                "question": e.question,
-                "answer": e.answer,
-                "popularity_score": e.popularity_score,
-                "similarity": 0.5,
-            }
-            for e in entries
-            if query_lower in e.question.lower() or query_lower in e.answer.lower()
-        ]
-
-        return {"items": filtered[:20]}
-
-
 @app.get("/api/dashboard/stats")
 async def get_dashboard_stats(
     request: Request,
@@ -611,7 +352,7 @@ async def get_dashboard_stats(
 
     # Статистика по базе знаний
     async with KnowledgeSessionLocal() as knowledge_session:
-        knowledge_count = await knowledge_crud.count_chunks(knowledge_session)
+        knowledge_count = await tickets_crud.count_chunks(knowledge_session)
 
     return {
         "tickets": tickets_stats,
@@ -706,6 +447,7 @@ async def upload_knowledge(
         logger.info("Excel upload: clearing all knowledge chunks")
         try:
             from sqlalchemy import delete
+
             # Удаляем все чанки (теперь все данные только в чанках)
             await session.execute(delete(models.DocumentChunk))
             await session.commit()
@@ -713,50 +455,53 @@ async def upload_knowledge(
         except Exception as e:
             logger.warning(f"Error clearing chunks before Excel upload: {e}")
             await session.rollback()
-    
+
     # НОВАЯ ЛОГИКА: Excel данные тоже превращаем в чанки
     source_file = f"excel_upload_{file.filename}"
-    
+
     # Удаляем старые чанки от этого файла
-    await knowledge_crud.delete_chunks_by_source(session, source_file)
-    
+    await tickets_crud.delete_chunks_by_source(session, source_file)
+
     # Создаем чанки из пар вопрос-ответ
     chunks_data = []
-    
+
     # Получаем embedder из RAG сервиса
     rag_service = request.app.state.rag
-    
+
     for idx, (question, answer) in enumerate(pairs):
         # Объединяем вопрос и ответ в один текстовый блок
         chunk_text = f"Вопрос: {question}\nОтвет: {answer}"
-        
+
         # Генерируем embedding для чанка
         embedding_list = rag_service.create_embedding(chunk_text)
         if embedding_list:
             import numpy as np
+
             embedding_vector = np.array(embedding_list, dtype=np.float32)
             embedding_bytes = embedding_vector.tobytes()
         else:
             # Если не удалось создать embedding, пропускаем этот чанк
             logger.warning(f"Failed to create embedding for chunk {idx}")
             continue
-        
-        chunks_data.append((
-            chunk_text,          # content
-            source_file,         # source_file
-            idx,                # chunk_index
-            0,                  # start_char (для Excel не актуально)
-            len(chunk_text),    # end_char
-            embedding_bytes,    # embedding
-        ))
-    
+
+        chunks_data.append(
+            (
+                chunk_text,  # content
+                source_file,  # source_file
+                idx,  # chunk_index
+                0,  # start_char (для Excel не актуально)
+                len(chunk_text),  # end_char
+                embedding_bytes,  # embedding
+            )
+        )
+
     # Сохраняем чанки в базу
-    await knowledge_crud.add_document_chunks(session, chunks_data)
+    await tickets_crud.add_document_chunks(session, chunks_data)
     await session.commit()
-    
+
     # Перезагружаем RAG систему
     await request.app.state.rag.reload()
-    
+
     return JSONResponse({"success": True, "entries": len(pairs)})
 
 
@@ -766,7 +511,7 @@ async def knowledge_stats(
     _: None = Depends(auth.ensure_api_auth),
 ) -> KnowledgeStats:
     # Теперь считаем только чанки - все данные только в чанках
-    total = await knowledge_crud.count_chunks(session)
+    total = await tickets_crud.count_chunks(session)
     return KnowledgeStats(total_entries=total)
 
 
@@ -787,15 +532,16 @@ async def upload_knowledge_files(
     from pathlib import Path
     from app.rag.document_parsers import DocumentParserFactory
     from app.rag.chunker import chunk_document
-    
+
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
-    
+
     # Очистка базы знаний если требуется
     if clear_database:
         logger.info("Clearing all knowledge chunks")
         try:
             from sqlalchemy import delete
+
             # Удаляем все чанки (теперь все данные только в чанках)
             await session.execute(delete(models.DocumentChunk))
             await session.commit()
@@ -803,53 +549,52 @@ async def upload_knowledge_files(
         except Exception as e:
             logger.warning(f"Error clearing chunks: {e}")
             await session.rollback()
-    
+
     total_chunks = 0
     processed_files = []
     errors = []
-    
-    # Получаем RAG сервис  
+
+    # Получаем RAG сервис
     rag_service: HybridRAGService = request.app.state.rag
-    
+
     for file in files:
         try:
             # Проверяем расширение
             file_ext = Path(file.filename).suffix.lower()
             supported_exts = DocumentParserFactory.supported_extensions()
-            
+
             if file_ext not in supported_exts:
-                errors.append(f"{file.filename}: Unsupported format. Supported: {', '.join(supported_exts)}")
+                errors.append(
+                    f"{file.filename}: Unsupported format. Supported: {', '.join(supported_exts)}"
+                )
                 continue
-            
+
             # Сохраняем во временный файл
             with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
                 content = await file.read()
                 tmp.write(content)
                 tmp_path = tmp.name
-            
+
             try:
                 # Парсим документ
                 text = DocumentParserFactory.parse_document(tmp_path)
-                
+
                 if not text or len(text.strip()) < 10:
                     errors.append(f"{file.filename}: No text extracted")
                     continue
-                
+
                 # Разбиваем на чанки
                 chunks = chunk_document(
-                    text,
-                    source_file=file.filename,
-                    chunk_size=1000,
-                    chunk_overlap=200
+                    text, source_file=file.filename, chunk_size=1000, chunk_overlap=200
                 )
-                
+
                 if not chunks:
                     errors.append(f"{file.filename}: No chunks created")
                     continue
-                
+
                 # Удаляем старые чанки этого файла (если есть)
-                await knowledge_crud.delete_chunks_by_source(session, file.filename)
-                
+                await tickets_crud.delete_chunks_by_source(session, file.filename)
+
                 # Создаем embeddings и сохраняем в БД
                 chunks_data = []
                 for chunk in chunks:
@@ -857,51 +602,60 @@ async def upload_knowledge_files(
                     embedding_list = rag_service.create_embedding(chunk.content)
                     if embedding_list:
                         import numpy as np
+
                         embedding_vector = np.array(embedding_list, dtype=np.float32)
                         embedding_bytes = embedding_vector.tobytes()
-                        
-                        chunks_data.append((
-                            chunk.content,
-                            chunk.source_file,
-                            chunk.chunk_index,
-                            chunk.start_char,
-                            chunk.end_char,
-                            embedding_bytes,
-                        ))
+
+                        chunks_data.append(
+                            (
+                                chunk.content,
+                                chunk.source_file,
+                                chunk.chunk_index,
+                                chunk.start_char,
+                                chunk.end_char,
+                                embedding_bytes,
+                            )
+                        )
                     else:
-                        logger.warning(f"Failed to create embedding for chunk from {chunk.source_file}")
+                        logger.warning(
+                            f"Failed to create embedding for chunk from {chunk.source_file}"
+                        )
                         continue
-                
+
                 # Сохраняем в БД
-                await knowledge_crud.add_document_chunks(session, chunks_data)
-                
+                await tickets_crud.add_document_chunks(session, chunks_data)
+
                 total_chunks += len(chunks)
-                processed_files.append({
-                    "filename": file.filename,
-                    "chunks": len(chunks),
-                    "text_length": len(text)
-                })
-                
+                processed_files.append(
+                    {
+                        "filename": file.filename,
+                        "chunks": len(chunks),
+                        "text_length": len(text),
+                    }
+                )
+
             finally:
                 # Удаляем временный файл
                 try:
                     os.unlink(tmp_path)
                 except Exception:
                     pass
-                    
+
         except Exception as e:
             logger.exception(f"Error processing file {file.filename}")
             errors.append(f"{file.filename}: {str(e)}")
             continue
-    
+
     # Обработка завершена - простой сервис не требует перезагрузки
-    
-    return JSONResponse({
-        "success": True,
-        "total_chunks": total_chunks,
-        "processed_files": processed_files,
-        "errors": errors if errors else None
-    })
+
+    return JSONResponse(
+        {
+            "success": True,
+            "total_chunks": total_chunks,
+            "processed_files": processed_files,
+            "errors": errors if errors else None,
+        }
+    )
 
 
 @app.get("/api/conversations", response_model=list[TicketRead])
@@ -1587,20 +1341,16 @@ async def update_setting(request: Request, data: dict = Body(...)):
 async def agent_chat(request: Request, data: dict = Body(...)):
     """Обработка запроса через RAG агента"""
     query = data.get("query", "").strip()
-    
+
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
-    
+
     try:
         rag_service: HybridRAGService = request.app.state.rag
         response = await rag_service.process_query(query)
-        
-        return {
-            "success": True,
-            "response": response,
-            "query": query
-        }
-        
+
+        return {"success": True, "response": response, "query": query}
+
     except Exception as e:
         logger.error(f"Agent chat error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка обработки запроса")

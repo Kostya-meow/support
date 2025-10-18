@@ -10,7 +10,7 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 
 from app.db import get_knowledge_session
-from app.db import crud as knowledge_crud
+from app.db import tickets_crud as knowledge_crud
 from app.config import load_config
 
 logger = logging.getLogger(__name__)

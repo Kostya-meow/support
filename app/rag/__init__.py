@@ -15,7 +15,6 @@ from .service import (
     ToxicityClassifier,
     SpeechToTextService,
 )
-from .retrieval import KnowledgeBase
 from .whisper_service import WhisperService
 
 __all__ = [
