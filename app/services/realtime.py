@@ -37,14 +37,17 @@ class ConnectionManager:
 
     def has_active_chat_connections(self, conversation_id: int) -> bool:
         """Проверяет, есть ли активные подключения к данному чату"""
-        has_connections = conversation_id in self._chat_clients and len(self._chat_clients[conversation_id]) > 0
-        # Логирование для отладки
-        if has_connections:
-            print(f"🔗 Conversation #{conversation_id} has {len(self._chat_clients[conversation_id])} active connections")
-        return has_connections
+        return (
+            conversation_id in self._chat_clients
+            and len(self._chat_clients[conversation_id]) > 0
+        )
 
-    async def send_conversations_snapshot(self, websocket: WebSocket, conversations: list[dict]) -> None:
-        await self._safe_send(websocket, {"type": "conversations", "conversations": conversations})
+    async def send_conversations_snapshot(
+        self, websocket: WebSocket, conversations: list[dict]
+    ) -> None:
+        await self._safe_send(
+            websocket, {"type": "conversations", "conversations": conversations}
+        )
 
     async def broadcast_conversations(self, conversations: list[dict]) -> None:
         payload = {"type": "conversations", "conversations": conversations}
@@ -52,7 +55,9 @@ class ConnectionManager:
             recipients = list(self._conversation_clients)
         await self._broadcast(recipients, payload, conversation_id=None)
 
-    async def send_message_history(self, websocket: WebSocket, conversation_id: int, messages: list[dict]) -> None:
+    async def send_message_history(
+        self, websocket: WebSocket, conversation_id: int, messages: list[dict]
+    ) -> None:
         await self._safe_send(
             websocket,
             {
@@ -75,7 +80,9 @@ class ConnectionManager:
     async def close_all(self) -> None:
         async with self._lock:
             conversation_clients = list(self._conversation_clients)
-            chat_clients = {cid: list(clients) for cid, clients in self._chat_clients.items()}
+            chat_clients = {
+                cid: list(clients) for cid, clients in self._chat_clients.items()
+            }
             self._conversation_clients.clear()
             self._chat_clients.clear()
         for websocket in conversation_clients:
@@ -122,4 +129,3 @@ class ConnectionManager:
         except Exception:
             if websocket.client_state == WebSocketState.CONNECTED:
                 await websocket.close()
-

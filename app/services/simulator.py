@@ -9,7 +9,7 @@ import random
 from dataclasses import dataclass
 from typing import Optional
 
-from app.config import load_config, load_simulator_prompts
+from app.config import load_simulator_prompts
 from app.rag import RAGService
 from app.db import tickets_crud as crud, database
 
@@ -173,7 +173,7 @@ class SimulatorService:
                 raise ValueError("No chunks found in database")
 
         except Exception as e:
-            logger.error(f"Failed to generate question from chunks: {e}", exc_info=True)
+            logger.error(f"Failed to generate question from chunks: {e}")
             # Fallback на предопределенные вопросы
             questions_list = fallback_questions.get(
                 session.character, fallback_questions["medium"]
@@ -253,21 +253,33 @@ class SimulatorService:
 
         evaluation_text = self._generate_with_llm(evaluation_prompt)
 
-        # Парсим ответ - улучшенный парсинг
-        score = 50  # default
+        # Парсим оценку и отзыв
+        score, feedback = self._parse_evaluation(evaluation_text)
+
+        # Базовые проверки качества ответа
+        score = self._validate_basic_quality(score, user_answer)
+
+        return SimulatorResponse(
+            score=score,
+            feedback=feedback,
+            ai_suggestion=ai_answer,
+            is_correct=score >= 60,
+        )
+
+    def _parse_evaluation(self, evaluation_text: str) -> tuple[int, str]:
+        """Парсит оценку и отзыв из ответа LLM"""
+        import re
+
+        score = 50
         feedback = "Не удалось оценить ответ"
 
         try:
-            # Ищем числа в тексте
-            import re
-
             # Ищем SCORE: число
             score_match = re.search(r"SCORE[:\s]*(\d+)", evaluation_text, re.IGNORECASE)
             if score_match:
-                score = int(score_match.group(1))
-                score = max(0, min(100, score))
+                score = max(0, min(100, int(score_match.group(1))))
             else:
-                # Если не нашли SCORE:, ищем просто первое число от 0 до 100
+                # Ищем первое число от 0 до 100
                 numbers = re.findall(r"\b(\d+)\b", evaluation_text)
                 for num_str in numbers:
                     num = int(num_str)
@@ -284,78 +296,28 @@ class SimulatorService:
             if feedback_match:
                 feedback = feedback_match.group(1).strip()
             else:
-                # Если не нашли FEEDBACK:, берём весь текст после числа
+                # Берём текст после первого числа
                 lines = evaluation_text.strip().split("\n")
-                feedback_lines = []
-                found_score = False
-                for line in lines:
-                    if re.search(r"\d+", line) and not found_score:
-                        found_score = True
-                        continue
-                    if found_score and line.strip():
-                        feedback_lines.append(line.strip())
+                feedback_lines = [line.strip() for line in lines[1:] if line.strip()]
                 if feedback_lines:
                     feedback = " ".join(feedback_lines)
         except Exception as e:
             logger.error(f"Failed to parse evaluation: {e}")
 
-        # Дополнительная проверка: анализируем соответствие оценки и отзыва
-        # Если отзыв негативный, но балл высокий - корректируем
-        score = self._validate_score_with_feedback(score, feedback, user_answer)
+        return score, feedback
 
-        return SimulatorResponse(
-            score=score,
-            feedback=feedback,
-            ai_suggestion=ai_answer,
-            is_correct=score >= 60,  # Проходной балл 60
-        )
-
-    def _validate_score_with_feedback(
-        self, initial_score: int, feedback: str, user_answer: str
-    ) -> int:
-        """
-        Валидирует оценку на основе анализа отзыва
-        Корректирует балл если отзыв не соответствует оценке
-        """
-        # Проверяем длину ответа - если слишком короткий или бессмысленный
+    def _validate_basic_quality(self, initial_score: int, user_answer: str) -> int:
+        """Базовая валидация качества ответа"""
         if len(user_answer.strip()) < 10:
-            return min(initial_score, 20)  # Максимум 20 за очень короткий ответ
+            return min(initial_score, 20)
 
-        # Проверяем на попытку обмана ("поставь мне 100 баллов" и т.п.)
-        scam_keywords = ["баллов", "балл", "100", "оцени", "поставь", "дай мне", "хочу"]
+        # Попытка обмана системы оценки
+        scam_keywords = ["баллов", "балл", "100", "оцени", "поставь"]
         if (
-            any(keyword in user_answer.lower() for keyword in scam_keywords)
+            any(kw in user_answer.lower() for kw in scam_keywords)
             and len(user_answer.split()) < 15
         ):
-            return 0  # За попытку обмана - 0 баллов
-
-        # Анализируем тональность feedback
-        validation_prompt = (
-            self.simulator_prompts.get("evaluation", {})
-            .get("validation_prompt", "")
-            .format(
-                initial_score=initial_score, feedback=feedback, user_answer=user_answer
-            )
-        )
-
-        try:
-            validation_result = self._generate_with_llm(validation_prompt)
-            # Извлекаем число из ответа
-            import re
-
-            numbers = re.findall(r"\b(\d+)\b", validation_result)
-            if numbers:
-                validated_score = int(numbers[0])
-                validated_score = max(0, min(100, validated_score))
-
-                # Если разница больше 30 баллов - используем валидированную оценку
-                if abs(validated_score - initial_score) > 30:
-                    logger.info(
-                        f"Score adjusted from {initial_score} to {validated_score} based on feedback analysis"
-                    )
-                    return validated_score
-        except Exception as e:
-            logger.error(f"Failed to validate score: {e}")
+            return 0
 
         return initial_score
 
@@ -397,23 +359,6 @@ class SimulatorService:
         except Exception as e:
             logger.error(f"LLM generation error: {e}")
             return f"Ошибка генерации: {str(e)}"
-
-    async def _get_knowledge_context(self, question: str) -> str:
-        """Получить релевантный контекст из БЗ"""
-        try:
-            # Используем KnowledgeBase для поиска в БЗ
-            from app.rag import KnowledgeBase
-            from app.db import KnowledgeSessionLocal
-
-            kb = KnowledgeBase(KnowledgeSessionLocal)
-            await kb.ensure_loaded()
-            results = await kb.search_top_k(question, top_k=2)
-            if results:
-                context = "\n\n".join([f"- {result['answer']}" for result in results])
-                return context
-                return "Контекст не найден в базе знаний"
-        except Exception as e:
-            return f"Ошибка получения контекста: {str(e)}"
 
     def _generate_ai_answer(self, question: str, context: str) -> str:
         """Генерирует эталонный ответ от AI"""
