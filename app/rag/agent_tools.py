@@ -538,37 +538,86 @@ def set_priority(dialogue_history: str = None) -> str:
 
     # Сохраняем приоритет в ticket через conversation_id
     conversation_id = get_current_conversation_id()
+    print(f"[AGENT] conversation_id = {conversation_id}")
+
     if conversation_id:
+        print(f"[AGENT] Начинаю процесс обновления приоритета: {priority}")
         try:
             import asyncio
             from app.db.database import TicketsSessionLocal
             from app.db import tickets_crud as crud
 
             async def update_priority():
+                print(
+                    f"[AGENT] Начинаю обновление приоритета для ticket {conversation_id} на {priority}"
+                )
                 async with TicketsSessionLocal() as session:
                     # Получаем ticket по conversation_id (это ID тикета)
                     ticket = await crud.get_ticket_by_id(session, conversation_id)
                     if ticket:
+                        old_priority = ticket.priority
                         ticket.priority = priority
                         await session.commit()
+                        await session.refresh(ticket)
                         print(
-                            f"[AGENT] Обновлен приоритет ticket {conversation_id}: {priority}"
+                            f"[AGENT] ✅ Приоритет ticket {conversation_id} изменен: {old_priority} -> {ticket.priority}"
                         )
+
+                        # Отправляем обновление всем подключенным клиентам
+                        try:
+                            from app.main import connection_manager
+                            from app.db import TicketRead
+
+                            # Получаем обновленный список тикетов для broadcast
+                            tickets = await crud.list_tickets(session, archived=False)
+                            from app.main import _serialize_tickets
+
+                            tickets_payload = _serialize_tickets(tickets)
+                            await connection_manager.broadcast_conversations(
+                                tickets_payload
+                            )
+                            print(
+                                f"[AGENT] ✅ Broadcasted priority update for ticket {conversation_id}"
+                            )
+                        except Exception as broadcast_error:
+                            print(
+                                f"[AGENT WARNING] Failed to broadcast priority update: {broadcast_error}"
+                            )
+                            logger.exception(f"Broadcast error: {broadcast_error}")
                     else:
                         print(
                             f"[AGENT WARNING] Ticket {conversation_id} не найден для обновления приоритета"
                         )
 
             # Запускаем асинхронную функцию
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(update_priority())
-            else:
-                loop.run_until_complete(update_priority())
+            # Проблема: агент работает в синхронном контексте, нужен новый event loop
+            print(f"[AGENT] Пытаюсь запустить update_priority...")
+            try:
+                # Пытаемся получить текущий loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    # Loop уже работает - создаем задачу
+                    print(f"[AGENT] Found running loop, creating task")
+                    asyncio.create_task(update_priority())
+                    print(f"[AGENT] Task created in running loop")
+                except RuntimeError:
+                    # Нет работающего loop - создаем новый
+                    print(
+                        f"[AGENT] No running loop, creating new one with asyncio.run()"
+                    )
+                    asyncio.run(update_priority())
+                    print(f"[AGENT] asyncio.run() completed")
+            except Exception as loop_error:
+                print(f"[AGENT ERROR] Loop error: {loop_error}")
+                logger.exception(f"Event loop error: {loop_error}")
 
         except Exception as e:
             print(f"[AGENT ERROR] Ошибка сохранения приоритета в БД: {e}")
-            logger.error(f"Failed to save priority to database: {e}")
+            logger.exception(f"Failed to save priority to database: {e}")
+    else:
+        print(
+            f"[AGENT WARNING] conversation_id не установлен, не могу сохранить приоритет"
+        )
 
     priority_labels = {
         "low": "низкий",

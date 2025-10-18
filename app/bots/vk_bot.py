@@ -690,8 +690,29 @@ def create_vk_bot(
             logger.warning(f"Failed to calculate average response time: {e}")
             return "обычно быстро"
 
+    async def _send_bot_message_to_ticket_vk(user_id: int, text: str) -> None:
+        """Сохраняет сообщение бота в тикет пользователя VK (если тикет существует)"""
+        chat_id = f"vk_{user_id}"
+        async with session_maker() as session:
+            ticket = await crud.get_open_ticket_by_chat_id(session, chat_id)
+            if ticket:
+                should_mark_as_read = connection_manager.has_active_chat_connections(
+                    ticket.id
+                )
+
+                db_message = await crud.add_message(
+                    session,
+                    ticket_id=ticket.id,
+                    sender=BOT_SENDER,
+                    text=text,
+                    is_read=should_mark_as_read,
+                )
+
+                await _broadcast_message(ticket.id, MessageRead.from_orm(db_message))
+                await _broadcast_tickets()
+
     async def _answer_with_rag_only_vk(user_id: int, user_text: str) -> None:
-        """Отвечает пользователю через RAG без создания заявки"""
+        """Отвечает пользователю через RAG и сохраняет ответ в тикет (если есть)"""
         logger.info(
             f"VK: Starting RAG processing for user {user_id}, text: {user_text[:50]}..."
         )
@@ -742,6 +763,9 @@ def create_vk_bot(
             # For VK we don't send a 'No' option; instruct user to reply 'да' to call operator.
             await _send_vk_message(user_id, combined_text)
 
+            # Сохраняем ответ бота в тикет
+            await _send_bot_message_to_ticket_vk(user_id, combined_text)
+
             # Сохраняем в историю RAG
             rag_service.add_to_history(conversation_id, user_text, False)
             rag_service.add_to_history(conversation_id, combined_text, True)
@@ -752,6 +776,9 @@ def create_vk_bot(
                 f"VK: Sending RAG response to user {user_id}: {response_text[:100]}..."
             )
             await _send_vk_message(user_id, response_text)
+
+            # Сохраняем ответ бота в тикет
+            await _send_bot_message_to_ticket_vk(user_id, response_text)
 
             # Сохраняем в истории RAG
             rag_service.add_to_history(conversation_id, user_text, False)
@@ -1151,20 +1178,33 @@ def create_vk_bot(
         # Проверяем блокировку
         async with user_locks[user_id]:
             # Проверяем, есть ли открытая заявка
-            ticket_id, persisted = await _persist_message_vk(
-                user_id, text, USER_SENDER, message_id
-            )
-            logger.info(
-                f"VK: persist_message returned ticket_id={ticket_id}, persisted={persisted}"
-            )
+            async with session_maker() as session:
+                ticket = await crud.get_open_ticket_by_chat_id(session, f"vk_{user_id}")
 
-            if persisted:
-                # Сообщение сохранено в существующую заявку
-                logger.info(
-                    f"VK: Message saved to existing ticket {ticket_id}, not responding to user"
-                )
-                await _broadcast_tickets()
-                return
+                if ticket is None:
+                    # НЕТ ЗАЯВКИ - создаём новую при первом сообщении
+                    logger.info(
+                        f"VK: Creating new ticket for user {user_id} on first message"
+                    )
+                    ticket_id = await _create_ticket_and_add_message_vk(
+                        user_id, text, message_id
+                    )
+
+                    # Отвечаем через RAG
+                    await _answer_with_rag_only_vk(user_id, text)
+                    return
+
+                # ЕСТЬ ЗАЯВКА - проверяем, подключен ли оператор
+                if ticket.operator_requested:
+                    # Оператор подключен - только сохраняем сообщение, бот молчит
+                    await _persist_message_vk(user_id, text, USER_SENDER, message_id)
+                    await _broadcast_tickets()
+                    return
+                else:
+                    # Оператор НЕ подключен - сохраняем сообщение И отвечаем через RAG
+                    await _persist_message_vk(user_id, text, USER_SENDER, message_id)
+                    await _answer_with_rag_only_vk(user_id, text)
+                    return
 
             # Нет открытой заявки - проверяем специальные команды
             low = text.lower().strip()

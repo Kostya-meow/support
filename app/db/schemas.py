@@ -16,6 +16,7 @@ class TicketRead(BaseModel):
     summary: Optional[str]
     status: TicketStatus
     priority: str
+    operator_requested: bool = False  # Флаг запроса оператора
     created_at: datetime
     first_response_at: Optional[datetime]
     closed_at: Optional[datetime]

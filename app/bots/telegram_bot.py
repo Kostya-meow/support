@@ -330,6 +330,31 @@ def create_dispatcher(
         await _broadcast_tickets()
         return ticket.id
 
+    async def _send_bot_message(ticket_id: int, text: str) -> None:
+        """Отправляет сообщение от имени бота в конкретную заявку"""
+        async with session_maker() as session:
+            should_mark_as_read = connection_manager.has_active_chat_connections(
+                ticket_id
+            )
+
+            db_message = await crud.add_message(
+                session,
+                ticket_id=ticket_id,
+                sender=BOT_SENDER,
+                text=text,
+                is_read=should_mark_as_read,
+            )
+
+        await _broadcast_message(ticket_id, MessageRead.from_orm(db_message))
+        await _broadcast_tickets()
+
+    async def _send_bot_message_to_ticket(chat_id: int, text: str) -> None:
+        """Сохраняет сообщение бота в тикет пользователя (если тикет существует)"""
+        async with session_maker() as session:
+            ticket = await crud.get_open_ticket_by_chat_id(session, chat_id)
+            if ticket:
+                await _send_bot_message(ticket.id, text)
+
     async def _get_average_response_time() -> str:
         """Вычисляет среднее время ответа оператора"""
         try:
@@ -381,7 +406,7 @@ def create_dispatcher(
             return "обычно быстро"
 
     async def _answer_with_rag_only(message: Message, user_text: str) -> None:
-        """Отвечает пользователю через RAG без создания заявки"""
+        """Отвечает пользователю через RAG и сохраняет ответ в тикет (если есть)"""
         await message.bot.send_chat_action(message.chat.id, "typing")
 
         try:
@@ -416,6 +441,9 @@ def create_dispatcher(
 
             # Показываем основной ответ
             await message.answer(answer_text, parse_mode="HTML")
+
+            # Сохраняем ответ бота в тикет
+            await _send_bot_message_to_ticket(message.chat.id, answer_text)
 
             # Создаём кнопки из предложений
             buttons = []
@@ -474,9 +502,14 @@ def create_dispatcher(
             await message.answer(
                 combined_text, reply_markup=confirm_keyboard, parse_mode="HTML"
             )
+            # Сохраняем ответ бота в тикет
+            await _send_bot_message_to_ticket(message.chat.id, combined_text)
         else:
             # Уверенный ответ - показываем ответ и кнопки KB (если доступны)
             await message.answer(answer_text, parse_mode="HTML")
+
+            # Сохраняем ответ бота в тикет
+            await _send_bot_message_to_ticket(message.chat.id, answer_text)
 
             # Показываем быстрые кнопки из knowledge_base
             if knowledge_base is not None:
@@ -703,14 +736,30 @@ def create_dispatcher(
             return
 
         async with lock:
-            ticket_id, has_ticket = await _persist_message(message, user_text)
+            # Проверяем, есть ли открытая заявка
+            async with session_maker() as session:
+                ticket = await crud.get_open_ticket_by_chat_id(session, chat_id)
 
-            if has_ticket and ticket_id:
-                # Есть открытая заявка - общение с оператором, бот молчит
-                return
+                if ticket is None:
+                    # НЕТ ЗАЯВКИ - создаём новую при первом сообщении
+                    logger.info(
+                        f"Creating new ticket for chat {chat_id} on first message"
+                    )
+                    ticket_id = await _create_ticket_and_add_message(message, user_text)
 
-            # Нет заявки - отвечаем через RAG
-            await _answer_with_rag_only(message, user_text)
+                    # Отвечаем через RAG
+                    await _answer_with_rag_only(message, user_text)
+                    return
+
+                # ЕСТЬ ЗАЯВКА - проверяем, подключен ли оператор
+                if ticket.operator_requested:
+                    # Оператор подключен - только сохраняем сообщение, бот молчит
+                    ticket_id, has_ticket = await _persist_message(message, user_text)
+                    return
+                else:
+                    # Оператор НЕ подключен - сохраняем сообщение И отвечаем через RAG
+                    ticket_id, has_ticket = await _persist_message(message, user_text)
+                    await _answer_with_rag_only(message, user_text)
 
     @router.message(F.caption)
     async def on_caption(message: Message) -> None:

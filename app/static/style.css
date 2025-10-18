@@ -1258,11 +1258,17 @@
   .stats-grid-four {
     grid-template-columns: repeat(4, minmax(180px, 1fr));
   }
+  .stats-grid-three {
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+  }
   @media (max-width: 1440px) {
     .stats-grid-six {
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     }
     .stats-grid-four {
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+    .stats-grid-three {
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     }
   }

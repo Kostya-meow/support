@@ -219,6 +219,11 @@
             
             // Фильтруем по текущему табу
             const filteredConversations = conversations.filter(conversation => {
+                // ВАЖНО: показываем ТОЛЬКО тикеты где запрошен оператор
+                if (!conversation.operator_requested) {
+                    return false;
+                }
+                
                 if (currentTab === 'active') {
                     // Активные: open и in_progress
                     return conversation.status === 'open' || conversation.status === 'in_progress';
@@ -273,6 +278,41 @@
                 
                 meta.appendChild(createdTime);
                 meta.appendChild(updatedTime);
+                
+                // Добавляем приоритет
+                if (conversation.priority) {
+                    const priorityLabels = {
+                        'high': 'Высокий',
+                        'medium': 'Средний',
+                        'low': 'Низкий'
+                    };
+                    const priorityColors = {
+                        'high': '#ff4444',
+                        'medium': '#ffaa00',
+                        'low': '#4CAF50'
+                    };
+                    const priorityIcons = {
+                        'high': '⬆️',
+                        'medium': '➡️',
+                        'low': '⬇️'
+                    };
+                    
+                    const priorityDiv = document.createElement('div');
+                    priorityDiv.className = 'conversation-priority';
+                    priorityDiv.style.cssText = `
+                        display: inline-block;
+                        padding: 2px 8px;
+                        border-radius: 12px;
+                        font-size: 11px;
+                        font-weight: 500;
+                        margin-top: 4px;
+                        background-color: ${priorityColors[conversation.priority]}20;
+                        color: ${priorityColors[conversation.priority]};
+                        border: 1px solid ${priorityColors[conversation.priority]};
+                    `;
+                    priorityDiv.textContent = `${priorityIcons[conversation.priority]} ${priorityLabels[conversation.priority]}`;
+                    meta.appendChild(priorityDiv);
+                }
 
                 content.appendChild(title);
                 content.appendChild(meta);

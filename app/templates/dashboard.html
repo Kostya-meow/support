@@ -106,30 +106,15 @@
                     <div class="active-sessions-section">
                         <h2 class="section-title">📊 Активные диалоги</h2>
                         
-                        <div class="stats-grid stats-grid-four">
-                            <div class="stat-card">
-                                <div class="stat-value" id="totalActiveSessions">-</div>
-                                <div class="stat-label">Всего активных</div>
-                            </div>
-                            
-                            <div class="stat-card priority-low">
-                                <div class="stat-value" id="lowPrioritySessions">-</div>
-                                <div class="stat-label">⬇️ Низкий приоритет</div>
-                            </div>
-                            
-                            <div class="stat-card priority-medium">
-                                <div class="stat-value" id="mediumPrioritySessions">-</div>
-                                <div class="stat-label">➡️ Средний приоритет</div>
-                            </div>
-                            
-                            <div class="stat-card priority-high">
-                                <div class="stat-value" id="highPrioritySessions">-</div>
-                                <div class="stat-label">⬆️ Высокий приоритет</div>
+                        <div class="chart-card">
+                            <div class="chart-title">Распределение активных диалогов</div>
+                            <div class="chart-container" style="height: 300px;">
+                                <canvas id="activeSessionsChart"></canvas>
                             </div>
                         </div>
                         
-                        <div class="classifications-container" id="classificationsContainer">
-                            <div class="classifications-header">Распределение по категориям:</div>
+                        <div class="classifications-container" id="classificationsContainer" style="margin-top: 20px;">
+                            <div class="classifications-header">Распределение по категориям (очередь бота):</div>
                             <div class="classifications-grid" id="classificationsGrid">
                                 <!-- Динамически заполняется -->
                             </div>
@@ -143,6 +128,7 @@
     <script>
         let dailyChart = null;
         let timeChart = null;
+        let activeSessionsChart = null;
 
         async function loadDashboardData() {
             try {
@@ -185,17 +171,95 @@
         }
 
         function updateActiveSessionsStats(data) {
-            // Обновляем общее количество активных сессий
-            document.getElementById('totalActiveSessions').textContent = data.total_active || 0;
+            // Уничтожаем старую диаграмму если есть
+            if (activeSessionsChart) {
+                activeSessionsChart.destroy();
+            }
             
-            // Обновляем статистику по приоритетам
-            document.getElementById('lowPrioritySessions').textContent = data.by_priority.low || 0;
-            document.getElementById('mediumPrioritySessions').textContent = data.by_priority.medium || 0;
-            document.getElementById('highPrioritySessions').textContent = data.by_priority.high || 0;
+            // Создаем столбчатую диаграмму
+            const ctx = document.getElementById('activeSessionsChart').getContext('2d');
             
-            // Обновляем классификации
+            activeSessionsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [
+                        'Всего активных',
+                        'С ботом',
+                        'С оператором',
+                        'Низкий приоритет',
+                        'Средний приоритет',
+                        'Высокий приоритет'
+                    ],
+                    datasets: [{
+                        label: 'Количество диалогов',
+                        data: [
+                            data.total_active || 0,
+                            data.bot_only || 0,
+                            data.with_operator || 0,
+                            data.bot_by_priority.low || 0,
+                            data.bot_by_priority.medium || 0,
+                            data.bot_by_priority.high || 0
+                        ],
+                        backgroundColor: [
+                            '#6366f1', // Всего - индиго
+                            '#8b5cf6', // Бот - фиолетовый
+                            '#ec4899', // Оператор - розовый
+                            '#10b981', // Низкий - зеленый
+                            '#f59e0b', // Средний - оранжевый
+                            '#ef4444'  // Высокий - красный
+                        ],
+                        borderRadius: 8,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            padding: 12,
+                            titleFont: {
+                                size: 14
+                            },
+                            bodyFont: {
+                                size: 13
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1,
+                                font: {
+                                    size: 12
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                font: {
+                                    size: 11
+                                }
+                            },
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Обновляем классификации (только для диалогов с ботом)
             const classificationsGrid = document.getElementById('classificationsGrid');
-            const byClassification = data.by_classification || {};
+            const byClassification = data.bot_by_classification || {};
             
             if (Object.keys(byClassification).length === 0) {
                 classificationsGrid.innerHTML = '<div class="no-classifications">Нет данных о классификациях</div>';

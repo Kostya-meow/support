@@ -5,11 +5,66 @@ import contextlib
 import io
 import logging
 import os
+from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from typing import AsyncIterator
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+# Настройка логирования
+def setup_logging():
+    """Настройка системы логирования"""
+    # Создаем директорию для логов если её нет
+    logs_dir = "logs"
+    os.makedirs(logs_dir, exist_ok=True)
+
+    # Формат логов
+    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    date_format = "%Y-%m-%d %H:%M:%S"
+
+    # Корневой логгер
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Очищаем существующие обработчики
+    root_logger.handlers.clear()
+
+    # Обработчик для файла (с ротацией)
+    log_file = os.path.join(
+        logs_dir, f"support_{datetime.now().strftime('%Y%m%d')}.log"
+    )
+    file_handler = RotatingFileHandler(
+        log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"  # 10 MB
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter(log_format, date_format))
+
+    # Обработчик для консоли
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter(log_format, date_format))
+
+    # Добавляем обработчики
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+
+    # Настраиваем уровни для сторонних библиотек
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("aiogram").setLevel(logging.INFO)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+
+    logging.info("=" * 80)
+    logging.info("Система логирования инициализирована")
+    logging.info(f"Логи сохраняются в: {log_file}")
+    logging.info("=" * 80)
+
+
+# Инициализируем логирование при импорте модуля
+setup_logging()
 
 from aiogram import Bot
 from fastapi import (
@@ -78,6 +133,7 @@ def _serialize_tickets(tickets: list[models.Ticket]) -> list[dict]:
                     "summary": raw.get("summary"),
                     "status": raw.get("status"),
                     "priority": raw.get("priority"),
+                    "operator_requested": raw.get("operator_requested", False),
                     "created_at": raw.get("created_at"),
                     "first_response_at": raw.get("first_response_at"),
                     "closed_at": raw.get("closed_at"),
@@ -179,13 +235,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.vk_bot = None
 
     try:
+        logger.info("✅ Application startup complete")
         yield
     finally:
+        logger.info("🛑 Shutting down application...")
         if bot_task:
+            logger.info("Stopping Telegram bot...")
             bot_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await bot_task
         if vk_bot_task:
+            logger.info("Stopping VK bot...")
             vk_bot_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await vk_bot_task
@@ -194,8 +254,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             with contextlib.suppress(asyncio.CancelledError):
                 await popularity_task
         if bot:
+            logger.info("Closing bot session...")
             await bot.session.close()
+        logger.info("Closing all connections...")
         await connection_manager.close_all()
+        logger.info("✅ Application shutdown complete")
 
 
 app = FastAPI(title="Support Desk", lifespan=lifespan)
@@ -377,37 +440,67 @@ async def get_active_sessions_stats(
     # Получаем ВСЕ активные тикеты (статус open или in_progress)
     active_tickets = await crud.list_tickets(session, archived=False)
 
-    # Статистика по приоритетам
-    priority_stats = {
+    logger.info(f"[DASHBOARD] Найдено активных тикетов: {len(active_tickets)}")
+
+    # Разделяем тикеты на группы
+    bot_only_tickets = []  # Только диалоги с ботом (operator_requested=False)
+    operator_tickets = []  # Диалоги с оператором (operator_requested=True)
+
+    # Статистика по приоритетам (только для диалогов с ботом)
+    bot_priority_stats = {
         "low": 0,
         "medium": 0,
         "high": 0,
     }
 
-    # Статистика по классам (категориям)
-    classification_stats = {}
+    # Статистика по классам (только для диалогов с ботом)
+    bot_classification_stats = {}
+
+    # Подсчет высокоприоритетных диалогов с ботом
+    high_priority_bot_count = 0
 
     for ticket in active_tickets:
-        # Подсчет по приоритетам
-        priority = ticket.priority or "medium"
-        if priority in priority_stats:
-            priority_stats[priority] += 1
+        logger.info(
+            f"[DASHBOARD] Тикет #{ticket.id}: priority={ticket.priority}, classification={ticket.classification}, operator_requested={ticket.operator_requested}"
+        )
 
-        # Подсчет по классификациям
-        if ticket.classification:
-            # Классификация может содержать несколько категорий через запятую
-            categories = [cat.strip() for cat in ticket.classification.split(",")]
-            for category in categories:
-                if category:
-                    classification_stats[category] = (
-                        classification_stats.get(category, 0) + 1
-                    )
+        # Разделяем по типу
+        if ticket.operator_requested:
+            operator_tickets.append(ticket)
+        else:
+            bot_only_tickets.append(ticket)
 
-    return {
+            # Подсчет по приоритетам (только для бота)
+            priority = ticket.priority or "medium"
+            if priority in bot_priority_stats:
+                bot_priority_stats[priority] += 1
+
+            # Подсчет высокоприоритетных
+            if priority == "high":
+                high_priority_bot_count += 1
+
+            # Подсчет по классификациям (только для бота)
+            if ticket.classification:
+                # Классификация может содержать несколько категорий через запятую
+                categories = [cat.strip() for cat in ticket.classification.split(",")]
+                for category in categories:
+                    if category:
+                        bot_classification_stats[category] = (
+                            bot_classification_stats.get(category, 0) + 1
+                        )
+
+    result = {
         "total_active": len(active_tickets),
-        "by_priority": priority_stats,
-        "by_classification": classification_stats,
+        "bot_only": len(bot_only_tickets),
+        "with_operator": len(operator_tickets),
+        "high_priority_bot": high_priority_bot_count,
+        "bot_by_priority": bot_priority_stats,
+        "bot_by_classification": bot_classification_stats,
     }
+
+    logger.info(f"[DASHBOARD] Результат: {result}")
+
+    return result
 
 
 @app.post("/admin/knowledge/upload")
@@ -708,9 +801,10 @@ async def api_list_conversations(
     archived: bool = False,
     session: AsyncSession = Depends(get_tickets_session),
     _: None = Depends(auth.ensure_api_auth),
-) -> list[TicketRead]:
+) -> list[dict]:
     tickets = await crud.list_tickets(session, archived=archived)
-    return tickets
+    # Используем _serialize_tickets для подсчета unread_count
+    return _serialize_tickets(tickets)
 
 
 @app.get("/api/conversations/{conversation_id}", response_model=TicketRead)
@@ -718,11 +812,13 @@ async def api_get_conversation(
     conversation_id: int,
     session: AsyncSession = Depends(get_tickets_session),
     _: None = Depends(auth.ensure_api_auth),
-) -> TicketRead:
+) -> dict:
     ticket = await crud.get_ticket_by_id(session, conversation_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return TicketRead.from_orm(ticket)
+    # Используем _serialize_tickets для подсчета unread_count и корректной сериализации
+    serialized = _serialize_tickets([ticket])
+    return serialized[0] if serialized else {}
 
 
 @app.get(
