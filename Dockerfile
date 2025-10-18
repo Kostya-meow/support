@@ -11,13 +11,17 @@ RUN apt-get update && apt-get install -y \
 # Создаем рабочую директорию
 WORKDIR /app
 
-# Копируем файл зависимостей
+# Копируем файл зависимостей ОТДЕЛЬНО
+# Этот слой кэшируется и не пересобирается если requirements.txt не изменился
 COPY requirements.txt .
 
-# Устанавливаем Python зависимости
-RUN pip install -r requirements.txt
+# Устанавливаем Python зависимости с использованием pip cache
+# --mount=type=cache позволяет кэшировать скачанные пакеты между сборками
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r requirements.txt
 
 # Копируем все файлы проекта
+# Этот слой пересобирается только если изменились файлы проекта
 COPY . .
 
 # Создаем директории для данных

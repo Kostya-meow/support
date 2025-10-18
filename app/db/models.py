@@ -68,7 +68,7 @@ KnowledgeBase = declarative_base()
 
 
 class KnowledgeEntry(KnowledgeBase):
-    """Запись в базе знаний"""
+    """Запись в базе знаний (старая система - вопрос/ответ)"""
     __tablename__ = "knowledge_entries"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -77,3 +77,19 @@ class KnowledgeEntry(KnowledgeBase):
     embedding = Column(LargeBinary, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     popularity_score = Column(Float, default=0.0, nullable=False)
+
+
+class DocumentChunk(KnowledgeBase):
+    """Чанк документа в новой системе базы знаний"""
+    __tablename__ = "document_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    content = Column(Text, nullable=False)  # Текст чанка
+    source_file = Column(String(512), nullable=False)  # Имя исходного файла
+    chunk_index = Column(Integer, nullable=False)  # Порядковый номер чанка в документе
+    start_char = Column(Integer, default=0)  # Начальная позиция в документе
+    end_char = Column(Integer, default=0)  # Конечная позиция в документе
+    embedding = Column(LargeBinary, nullable=True)  # Векторное представление
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Дополнительные метаданные (JSON как текст)
+    chunk_metadata = Column(Text, nullable=True)  # Переименовано из metadata

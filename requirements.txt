@@ -17,11 +17,16 @@ rank-bm25
 langchain-community
 nltk
 transformers
-# Локальное распознавание речи с помощью Whisper
 openai-whisper
 torch
 ffmpeg-python
-imageio[ffmpeg]  # Резервный вариант FFmpeg для Windows
+imageio[ffmpeg]
 bcrypt
 pyngrok
 vk_api
+# Простые парсеры документов
+python-docx
+docx2txt
+pillow
+easyocr
+pdf2image

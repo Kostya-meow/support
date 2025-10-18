@@ -175,3 +175,87 @@ async def get_random_knowledge_entry(
         select(models.KnowledgeEntry).order_by(func.random()).limit(1)
     )
     return result.scalar_one_or_none()
+
+
+# === CRUD для DocumentChunk (новая система чанков) ===
+
+
+async def add_document_chunks(
+    session: AsyncSession,
+    chunks: Iterable[tuple[str, str, int, int, int, bytes | None]],
+) -> None:
+    """
+    Добавить чанки документа в БД
+    
+    Args:
+        chunks: Итератор кортежей (content, source_file, chunk_index, start_char, end_char, embedding)
+    """
+    session.add_all(
+        [
+            models.DocumentChunk(
+                content=content,
+                source_file=source_file,
+                chunk_index=chunk_index,
+                start_char=start_char,
+                end_char=end_char,
+                embedding=embedding,
+            )
+            for content, source_file, chunk_index, start_char, end_char, embedding in chunks
+        ]
+    )
+    await session.commit()
+
+
+async def delete_chunks_by_source(
+    session: AsyncSession,
+    source_file: str,
+) -> None:
+    """Удалить все чанки из конкретного файла"""
+    await session.execute(
+        delete(models.DocumentChunk).where(models.DocumentChunk.source_file == source_file)
+    )
+    await session.commit()
+
+
+async def load_all_chunks(session: AsyncSession) -> list[models.DocumentChunk]:
+    """Загрузить все чанки"""
+    result = await session.execute(
+        select(models.DocumentChunk).order_by(
+            models.DocumentChunk.source_file,
+            models.DocumentChunk.chunk_index
+        )
+    )
+    return result.scalars().all()
+
+
+async def count_chunks(session: AsyncSession) -> int:
+    """Подсчитать общее количество чанков"""
+    result = await session.execute(
+        select(func.count()).select_from(models.DocumentChunk)
+    )
+    count = result.scalar_one()
+    return int(count or 0)
+
+
+async def get_random_chunk(
+    session: AsyncSession,
+) -> models.DocumentChunk | None:
+    """Получить случайный чанк для симулятора"""
+    result = await session.execute(
+        select(models.DocumentChunk).order_by(func.random()).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_chunks_by_source(
+    session: AsyncSession,
+    source_file: str,
+) -> list[models.DocumentChunk]:
+    """Получить все чанки конкретного файла"""
+    result = await session.execute(
+        select(models.DocumentChunk)
+        .where(models.DocumentChunk.source_file == source_file)
+        .order_by(models.DocumentChunk.chunk_index)
+    )
+    return result.scalars().all()
+

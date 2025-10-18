@@ -57,6 +57,9 @@ volumes:
   # Кеш моделей Whisper (~1.5GB для medium)
   # Скачивается при первом запуске, потом используется из кеша
   whisper_cache:
+  # Кеш pip для ускорения пересборки Docker образа
+  # Сохраняет скачанные Python пакеты между сборками
+  pip_cache:
 
 networks:
   default:

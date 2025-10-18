@@ -16,6 +16,7 @@ from .auth import (
     is_authenticated_request,
     ensure_api_auth,
     is_authenticated_websocket,
+    WEBSOCKET_UNAUTHORIZED_CLOSE_CODE,
 )
 from .permissions import (
     get_current_user_from_request,
@@ -37,6 +38,7 @@ __all__ = [
     "is_authenticated_request",
     "ensure_api_auth",
     "is_authenticated_websocket",
+    "WEBSOCKET_UNAUTHORIZED_CLOSE_CODE",
     # permissions
     "get_current_user_from_request",
     "get_current_user_id",

@@ -104,11 +104,12 @@ class SimulatorService:
 
     async def generate_question(self, session: SimulatorSession) -> SimulatorQuestion:
         """
-        Генерирует вопрос из базы знаний
+        Генерирует вопрос из чанков базы знаний
 
-        Алгоритм:
-        1. Получаем случайный вопрос из БЗ
-        2. Используем LLM для перефразирования в стиле персонажа
+        Новый алгоритм:
+        1. Получаем случайный чанк из БД
+        2. Извлекаем из него проблему/ситуацию
+        3. Используем LLM для создания вопроса в стиле персонажа
         """
         # Fallback вопросы на случай ошибок
         fallback_questions = {
@@ -129,55 +130,91 @@ class SimulatorService:
             ],
         }
 
-        # Получаем случайный вопрос из БЗ
+        # Пытаемся получить чанк из новой системы
         try:
-            # Получаем сессию БД для базы знаний
             async for kb_session in database.get_knowledge_session():
-                # Получаем случайную запись
+                # Пытаемся получить случайный чанк
+                chunk = await crud.get_random_chunk(kb_session)
+
+                if chunk and chunk.content:
+                    # Генерируем вопрос из чанка
+                    character_info = self.characters[session.character]
+
+                    # Создаем промпт для извлечения проблемы и создания вопроса
+                    extraction_prompt = (
+                        f"Ты — {character_info['name']}, {character_info['description']}.\n\n"
+                        f"Прочитай следующий фрагмент документации:\n\n"
+                        f"---\n{chunk.content}\n---\n\n"
+                        f"На основе этого фрагмента:\n"
+                        f"1. Определи одну конкретную проблему или ситуацию, которая там описана\n"
+                        f"2. Сформулируй вопрос от лица пользователя {character_info['name']}\n\n"
+                        f"Стиль персонажа:\n"
+                        f"- Новичок Вася: простые слова, неуверенность, не знает терминов\n"
+                        f"- Специалист Ольга: точно и профессионально, знает что хочет\n"
+                        f"- Директор Игорь: требовательный тон, срочность, может быть недоволен\n\n"
+                        f"Верни ТОЛЬКО сформулированный вопрос (1-3 предложения), как будто ты реальный пользователь.\n"
+                        f"НЕ пиши 'вопрос:', 'проблема:' и т.п. - только сам вопрос."
+                    )
+
+                    # Генерируем вопрос через LLM
+                    generated_question = self._generate_with_llm(extraction_prompt)
+
+                    # Проверяем что получили нормальный вопрос
+                    if (
+                        generated_question
+                        and len(generated_question) >= 10
+                        and "ошибка" not in generated_question.lower()
+                    ):
+                        question = SimulatorQuestion(
+                            question=generated_question,
+                            context=chunk.content,  # Используем сам чанк как контекст
+                            difficulty=session.character,
+                        )
+
+                        session.current_question_data = question
+                        return question
+
+                # Если чанков нет, пробуем старую систему (вопрос/ответ)
                 kb_entry = await crud.get_random_knowledge_entry(kb_session)
 
-                if not kb_entry:
-                    raise ValueError("No knowledge entries found in database")
+                if kb_entry:
+                    # Используем старую систему
+                    character_info = self.characters[session.character]
 
-                # Перефразируем вопрос в стиле персонажа
-                character_info = self.characters[session.character]
+                    rephrase_prompt = (
+                        f"Ты — {character_info['name']}, {character_info['description']}.\n\n"
+                        f"Перефразируй следующий вопрос в своем стиле:\n\n"
+                        f"{kb_entry.question}\n\n"
+                        f"ВАЖНО:\n"
+                        f"- Новичок Вася: используй простые слова, может не знать терминов, говори неуверенно\n"
+                        f"- Специалист Ольга: говори точно и профессионально, знаешь что хочешь\n"
+                        f"- Директор Игорь: требовательный тон, добавь срочность, можешь быть недовольным\n\n"
+                        f"Верни ТОЛЬКО перефразированный вопрос (1-2 предложения), без объяснений."
+                    )
 
-                # Создаем промпт для перефразирования
-                rephrase_prompt = (
-                    f"Ты — {character_info['name']}, {character_info['description']}.\n\n"
-                    f"Перефразируй следующий вопрос в своем стиле:\n\n"
-                    f"{kb_entry.question}\n\n"
-                    f"ВАЖНО:\n"
-                    f"- Новичок Вася: используй простые слова, может не знать терминов, говори неуверенно\n"
-                    f"- Специалист Ольга: говори точно и профессионально, знаешь что хочешь\n"
-                    f"- Директор Игорь: требовательный тон, добавь срочность, можешь быть недовольным\n\n"
-                    f"Верни ТОЛЬКО перефразированный вопрос (1-2 предложения), без объяснений."
-                )
+                    rephrased_question = self._generate_with_llm(rephrase_prompt)
 
-                # Генерируем перефразированный вопрос
-                rephrased_question = self._generate_with_llm(rephrase_prompt)
+                    if (
+                        not rephrased_question
+                        or len(rephrased_question) < 10
+                        or "ошибка" in rephrased_question.lower()
+                    ):
+                        rephrased_question = kb_entry.question
 
-                # Проверяем что получили нормальный вопрос
-                if (
-                    not rephrased_question
-                    or len(rephrased_question) < 10
-                    or "ошибка" in rephrased_question.lower()
-                ):
-                    # Если перефразирование не удалось, используем оригинальный вопрос
-                    rephrased_question = kb_entry.question
+                    question = SimulatorQuestion(
+                        question=rephrased_question,
+                        context=kb_entry.answer,
+                        difficulty=session.character,
+                    )
 
-                # Используем ответ из БЗ как контекст
-                question = SimulatorQuestion(
-                    question=rephrased_question,
-                    context=kb_entry.answer,
-                    difficulty=session.character,
-                )
+                    session.current_question_data = question
+                    return question
 
-                session.current_question_data = question
-                return question
+                # Если ничего не нашли
+                raise ValueError("No chunks or knowledge entries found in database")
 
         except Exception as e:
-            logger.error(f"Failed to get question from KB: {e}", exc_info=True)
+            logger.error(f"Failed to generate question from chunks: {e}", exc_info=True)
             # Fallback на предопределенные вопросы
             questions_list = fallback_questions.get(
                 session.character, fallback_questions["medium"]

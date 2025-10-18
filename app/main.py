@@ -16,6 +16,7 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Form,
     HTTPException,
     Request,
     UploadFile,
@@ -34,6 +35,7 @@ from app.config import load_rag_config, load_app_config
 from app.db import (
     models,
     tickets_crud as crud,
+    crud as knowledge_crud,  # Для работы с чанками
     get_tickets_session,
     get_knowledge_session,
     init_db,
@@ -461,7 +463,7 @@ async def get_user_permissions_api(request: Request):
 @require_permission("knowledge")
 async def knowledge_admin(request: Request):
     async with KnowledgeSessionLocal() as session:
-        total = await crud.count_knowledge_entries(session)
+        total = await knowledge_crud.count_chunks(session)
     return templates.TemplateResponse(
         "knowledge.html",
         {"request": request, "entry_count": total},
@@ -617,7 +619,7 @@ async def get_dashboard_stats(
 
     # Статистика по базе знаний
     async with KnowledgeSessionLocal() as knowledge_session:
-        knowledge_count = await crud.count_knowledge_entries(knowledge_session)
+        knowledge_count = await knowledge_crud.count_chunks(knowledge_session)
 
     return {
         "tickets": tickets_stats,
@@ -634,6 +636,7 @@ async def get_dashboard_stats(
 async def upload_knowledge(
     request: Request,
     file: UploadFile = File(...),
+    clear_database: bool = Form(True),
     session: AsyncSession = Depends(get_knowledge_session),
     _: None = Depends(auth.ensure_api_auth),
 ) -> JSONResponse:
@@ -706,10 +709,58 @@ async def upload_knowledge(
             status_code=400, detail="No valid question-answer pairs found"
         )
 
-    kb: KnowledgeBase = request.app.state.knowledge_base
-    entries_count = await kb.rebuild_from_pairs(pairs)
+    if clear_database:
+        # Полная очистка всех чанков
+        logger.info("Excel upload: clearing all knowledge chunks")
+        try:
+            from sqlalchemy import delete
+            # Удаляем все чанки (теперь все данные только в чанках)
+            await session.execute(delete(models.DocumentChunk))
+            await session.commit()
+            logger.info("Successfully cleared all knowledge chunks before Excel upload")
+        except Exception as e:
+            logger.warning(f"Error clearing chunks before Excel upload: {e}")
+            await session.rollback()
+    
+    # НОВАЯ ЛОГИКА: Excel данные тоже превращаем в чанки
+    source_file = f"excel_upload_{file.filename}"
+    
+    # Удаляем старые чанки от этого файла
+    await knowledge_crud.delete_chunks_by_source(session, source_file)
+    
+    # Создаем чанки из пар вопрос-ответ
+    chunks_data = []
+    
+    # Получаем embedder из RAG сервиса
+    rag_service = request.app.state.rag
+    
+    for idx, (question, answer) in enumerate(pairs):
+        # Объединяем вопрос и ответ в один текстовый блок
+        chunk_text = f"Вопрос: {question}\nОтвет: {answer}"
+        
+        # Генерируем embedding для чанка
+        embedding_vector = rag_service.embedder.encode(
+            [chunk_text], convert_to_numpy=True, normalize_embeddings=True
+        )[0].astype("float32")
+        embedding_bytes = embedding_vector.tobytes()
+        
+        chunks_data.append((
+            chunk_text,          # content
+            source_file,         # source_file
+            idx,                # chunk_index
+            0,                  # start_char (для Excel не актуально)
+            len(chunk_text),    # end_char
+            embedding_bytes,    # embedding
+        ))
+    
+    # Сохраняем чанки в базу
+    await knowledge_crud.add_document_chunks(session, chunks_data)
+    await session.commit()
+    
+    # Перезагружаем RAG систему
     await request.app.state.rag.reload()
-    return JSONResponse({"success": True, "entries": entries_count})
+    
+    return JSONResponse({"success": True, "entries": len(pairs)})
 
 
 @app.get("/api/knowledge/stats", response_model=KnowledgeStats)
@@ -717,8 +768,142 @@ async def knowledge_stats(
     session: AsyncSession = Depends(get_knowledge_session),
     _: None = Depends(auth.ensure_api_auth),
 ) -> KnowledgeStats:
-    total = await crud.count_knowledge_entries(session)
+    # Теперь считаем только чанки - все данные только в чанках
+    total = await knowledge_crud.count_chunks(session)
     return KnowledgeStats(total_entries=total)
+
+
+@app.post("/api/knowledge/upload-files")
+async def upload_knowledge_files(
+    files: list[UploadFile] = File(...),
+    clear_database: bool = True,  # Добавляем параметр для очистки БД
+    request: Request = None,
+    session: AsyncSession = Depends(get_knowledge_session),
+    _: None = Depends(auth.ensure_api_auth),
+) -> JSONResponse:
+    """
+    Загрузка и обработка файлов для базы знаний
+    Поддерживает: .pdf, .docx, .doc, .md
+    """
+    import tempfile
+    import os
+    from pathlib import Path
+    from app.rag.document_parsers import DocumentParserFactory
+    from app.rag.chunker import chunk_document
+    
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    
+    # Очистка базы знаний если требуется
+    if clear_database:
+        logger.info("Clearing all knowledge chunks")
+        try:
+            from sqlalchemy import delete
+            # Удаляем все чанки (теперь все данные только в чанках)
+            await session.execute(delete(models.DocumentChunk))
+            await session.commit()
+            logger.info("Successfully cleared all knowledge chunks")
+        except Exception as e:
+            logger.warning(f"Error clearing chunks: {e}")
+            await session.rollback()
+    
+    total_chunks = 0
+    processed_files = []
+    errors = []
+    
+    # Получаем embedder из RAG сервиса
+    rag_service: RAGService = request.app.state.rag
+    embedder = rag_service.embedder
+    
+    for file in files:
+        try:
+            # Проверяем расширение
+            file_ext = Path(file.filename).suffix.lower()
+            supported_exts = DocumentParserFactory.supported_extensions()
+            
+            if file_ext not in supported_exts:
+                errors.append(f"{file.filename}: Unsupported format. Supported: {', '.join(supported_exts)}")
+                continue
+            
+            # Сохраняем во временный файл
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                content = await file.read()
+                tmp.write(content)
+                tmp_path = tmp.name
+            
+            try:
+                # Парсим документ
+                text = DocumentParserFactory.parse_document(tmp_path)
+                
+                if not text or len(text.strip()) < 10:
+                    errors.append(f"{file.filename}: No text extracted")
+                    continue
+                
+                # Разбиваем на чанки
+                chunks = chunk_document(
+                    text,
+                    source_file=file.filename,
+                    chunk_size=1000,
+                    chunk_overlap=200
+                )
+                
+                if not chunks:
+                    errors.append(f"{file.filename}: No chunks created")
+                    continue
+                
+                # Удаляем старые чанки этого файла (если есть)
+                await knowledge_crud.delete_chunks_by_source(session, file.filename)
+                
+                # Создаем embeddings и сохраняем в БД
+                chunks_data = []
+                for chunk in chunks:
+                    # Генерируем embedding
+                    embedding_vector = embedder.encode(chunk.content)
+                    embedding_bytes = embedding_vector.tobytes()
+                    
+                    chunks_data.append((
+                        chunk.content,
+                        chunk.source_file,
+                        chunk.chunk_index,
+                        chunk.start_char,
+                        chunk.end_char,
+                        embedding_bytes,
+                    ))
+                
+                # Сохраняем в БД
+                await knowledge_crud.add_document_chunks(session, chunks_data)
+                
+                total_chunks += len(chunks)
+                processed_files.append({
+                    "filename": file.filename,
+                    "chunks": len(chunks),
+                    "text_length": len(text)
+                })
+                
+            finally:
+                # Удаляем временный файл
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            logger.exception(f"Error processing file {file.filename}")
+            errors.append(f"{file.filename}: {str(e)}")
+            continue
+    
+    # Перезагружаем RAG service с новыми данными
+    try:
+        await rag_service.reload()
+    except Exception as e:
+        logger.warning(f"Failed to reload RAG service: {e}")
+    
+    return JSONResponse({
+        "success": True,
+        "total_chunks": total_chunks,
+        "processed_files": processed_files,
+        "errors": errors if errors else None
+    })
 
 
 @app.get("/api/conversations", response_model=list[TicketRead])

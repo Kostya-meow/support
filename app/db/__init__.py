@@ -15,6 +15,7 @@ from app.db.models import (
     Ticket,
     Message,
     KnowledgeEntry,
+    DocumentChunk,
     TicketStatus,
 )
 
@@ -43,6 +44,7 @@ __all__ = [
     "Ticket",
     "Message",
     "KnowledgeEntry",
+    "DocumentChunk",
     "TicketStatus",
     "models",
     # Schemas
