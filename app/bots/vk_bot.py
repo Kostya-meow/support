@@ -325,9 +325,9 @@ def create_vk_bot(
 
                     if dialogue_text.strip():
                         # Используем встроенную функцию классификации из agent_tools
-                        from app.rag.agent_tools import classify_request
+                        from app.rag.agent_tools import _classify_request_internal
 
-                        classification_result = classify_request(
+                        classification_result = _classify_request_internal(
                             dialogue_history=dialogue_text
                         )
 

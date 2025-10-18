@@ -365,10 +365,61 @@ def create_dispatcher(
             or "Я пока не нашла ответ. Попробуйте уточнить вопрос."
         )
 
+        # Проверяем на специальный формат с похожими проблемами
+        if "SUGGEST_SIMILAR_PROBLEMS:::" in answer_text:
+            # Извлекаем данные и текст ответа
+            parts = answer_text.split("SUGGEST_SIMILAR_PROBLEMS:::")
+            actual_text = parts[0].strip()
+            suggestions_data = parts[1].strip() if len(parts) > 1 else ""
+
+            # Показываем основной ответ
+            if actual_text:
+                await message.answer(actual_text, parse_mode="HTML")
+
+            # Парсим данные похожих проблем и создаём кнопки
+            try:
+                import ast
+
+                suggestions = ast.literal_eval(suggestions_data)
+
+                if suggestions and isinstance(suggestions, list):
+                    buttons = []
+                    for item in suggestions[:3]:  # Максимум 3 кнопки
+                        chunk_id = item.get("id")
+                        preview = item.get("preview", "")[:60]  # Ограничиваем длину
+                        buttons.append(
+                            [
+                                InlineKeyboardButton(
+                                    text=f"📄 {preview}...",
+                                    callback_data=f"similar::{chunk_id}",
+                                )
+                            ]
+                        )
+
+                    if buttons:
+                        similar_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+                        await message.answer(
+                            "💡 Возможно, вам помогут эти решения:",
+                            reply_markup=similar_kb,
+                        )
+            except Exception as e:
+                logger.warning(f"Failed to parse similar problems: {e}")
+
+            return  # Завершаем обработку
+
+        # Проверяем, есть ли открытый тикет и не был ли уже запрошен оператор
+        async with session_maker() as session:
+            existing_ticket = await crud.get_open_ticket_by_chat_id(
+                session, message.chat.id
+            )
+            operator_already_requested = (
+                existing_ticket.operator_requested if existing_ticket else False
+            )
+
         # Проверяем нужен ли оператор (явный запрос или низкая уверенность)
         needs_operator = (
             rag_result.operator_requested or rag_result.confidence_score > 0.6
-        )
+        ) and not operator_already_requested
 
         if needs_operator:
             avg_response_time = await _get_average_response_time()
@@ -462,6 +513,58 @@ def create_dispatcher(
         except Exception as e:
             logger.error(f"Error in KB callback: {e}")
             await query.message.answer("Произошла ошибка при получении ответа.")
+
+    @router.callback_query(F.data.startswith("similar::"))
+    async def on_similar_callback(query: CallbackQuery) -> None:
+        """Обработчик нажатия на кнопки с похожими проблемами"""
+        await query.answer()
+
+        data = query.data or ""
+        parts = data.split("::")
+        if len(parts) < 2:
+            return
+
+        try:
+            chunk_id = int(parts[1])
+        except ValueError:
+            return
+
+        try:
+            from app.db.database import KnowledgeSessionLocal
+            from app.db import tickets_crud as knowledge_crud
+
+            async with KnowledgeSessionLocal() as session:
+                # Получаем чанк по ID
+                chunk = await knowledge_crud.get_chunk_by_id(session, chunk_id)
+
+                if not chunk:
+                    await query.message.answer("Извините, решение не найдено.")
+                    return
+
+                # Показываем решение пользователю
+                solution_text = chunk.content.strip()
+                source_info = (
+                    f"\n\n📚 Источник: {chunk.source_file}" if chunk.source_file else ""
+                )
+
+                full_response = f"<b>Решение:</b>\n\n{html.escape(solution_text)}{html.escape(source_info)}"
+
+                # Удаляем кнопки из сообщения после выбора
+                if query.message:
+                    try:
+                        await query.message.edit_reply_markup(reply_markup=None)
+                    except Exception:
+                        pass
+
+                    await query.message.answer(full_response, parse_mode="HTML")
+                else:
+                    await query.bot.send_message(
+                        query.from_user.id, full_response, parse_mode="HTML"
+                    )
+
+        except Exception as e:
+            logger.error(f"Error in similar problems callback: {e}")
+            await query.message.answer("Произошла ошибка при получении решения.")
 
     async def _send_bot_message(
         ticket_id: int, text: str, is_system: bool = False
@@ -662,6 +765,9 @@ def create_dispatcher(
                     session, ticket.id, models.TicketStatus.OPEN
                 )
 
+            # Устанавливаем флаг что оператор запрошен
+            await crud.mark_operator_requested(session, ticket.id)
+
             # Генерируем summary и классификацию
             messages = await crud.list_messages_for_ticket(session, ticket.id)
             if messages:
@@ -675,7 +781,7 @@ def create_dispatcher(
 
                 # Автоматическая классификация
                 try:
-                    from app.rag.agent_tools import classify_request
+                    from app.rag.agent_tools import _classify_request_internal
 
                     dialogue_text = "\n".join(
                         [
@@ -685,7 +791,7 @@ def create_dispatcher(
                     )
 
                     if dialogue_text.strip():
-                        classification_result = classify_request(
+                        classification_result = _classify_request_internal(
                             dialogue_history=dialogue_text
                         )
                         if "Классификация проблемы:" in classification_result:
@@ -705,6 +811,14 @@ def create_dispatcher(
 
         rag_service.reset_history(ticket.id)
         await callback_query.answer("✅ Заявка создана")
+
+        # Убираем кнопку из сообщения
+        if callback_query.message:
+            try:
+                await callback_query.message.edit_reply_markup(reply_markup=None)
+            except Exception as e:
+                logger.debug(f"Could not remove keyboard: {e}")
+
         await connection_manager.broadcast_conversations(tickets_payload)
 
         notice = "✅ Заявка создана. Ожидайте ответа оператора."

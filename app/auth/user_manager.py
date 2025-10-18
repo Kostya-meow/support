@@ -11,6 +11,213 @@ from datetime import datetime
 class UserManager:
     def __init__(self, db_path: str = "db/users.db"):
         self.db_path = db_path
+        self._ensure_db_exists()
+
+    def _ensure_db_exists(self):
+        """Проверить существование БД и создать если нужно"""
+        import os
+
+        # Создаём директорию если её нет
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+
+        # Проверяем существует ли БД
+        db_exists = os.path.exists(self.db_path)
+
+        if not db_exists:
+            print(f"⚠️ Users database not found, creating: {self.db_path}")
+            self._create_tables()
+            self._create_default_admin()
+
+    def _create_tables(self):
+        """Создать таблицы БД пользователей"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+
+        # Таблица пользователей
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                full_name TEXT,
+                role_id INTEGER,
+                is_active BOOLEAN DEFAULT 1,
+                is_admin BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP,
+                FOREIGN KEY (role_id) REFERENCES roles(id)
+            )
+        """
+        )
+
+        # Таблица ролей
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+
+        # Таблица прав доступа
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                page_key TEXT UNIQUE NOT NULL,
+                page_name TEXT NOT NULL,
+                description TEXT
+            )
+        """
+        )
+
+        # Связь ролей и прав
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS role_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role_id INTEGER NOT NULL,
+                permission_id INTEGER NOT NULL,
+                FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+                FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+                UNIQUE(role_id, permission_id)
+            )
+        """
+        )
+
+        # Индивидуальные права пользователей
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                permission_id INTEGER NOT NULL,
+                granted BOOLEAN DEFAULT 1,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+                UNIQUE(user_id, permission_id)
+            )
+        """
+        )
+
+        # Системные настройки
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS system_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                setting_key TEXT UNIQUE NOT NULL,
+                setting_value TEXT,
+                setting_type TEXT DEFAULT 'string',
+                description TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+
+        # Вставка базовых прав
+        pages = [
+            ("tickets", "Заявки", "Управление заявками пользователей"),
+            ("dashboard", "Дашборд", "Просмотр статистики"),
+            ("knowledge", "База знаний", "Управление базой знаний"),
+            ("simulator", "Симулятор", "Доступ к симулятору обучения"),
+            ("admin", "Администрирование", "Доступ к админ-панели"),
+        ]
+
+        cursor.executemany(
+            """
+            INSERT OR IGNORE INTO permissions (page_key, page_name, description)
+            VALUES (?, ?, ?)
+        """,
+            pages,
+        )
+
+        # Создание ролей
+        roles = [
+            ("admin", "Администратор - Полный доступ"),
+            ("operator", "Оператор - Доступ к заявкам"),
+        ]
+
+        cursor.executemany(
+            """
+            INSERT OR IGNORE INTO roles (name, description)
+            VALUES (?, ?)
+        """,
+            roles,
+        )
+
+        # Права для админа (все)
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id
+            FROM roles r, permissions p
+            WHERE r.name = 'admin'
+        """
+        )
+
+        # Права для оператора (заявки + симулятор)
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id
+            FROM roles r, permissions p
+            WHERE r.name = 'operator' AND p.page_key IN ('tickets', 'simulator')
+        """
+        )
+
+        conn.commit()
+        conn.close()
+        print("✅ Users database tables created")
+
+    def _create_default_admin(self):
+        """Создать пользователя admin по умолчанию"""
+        import os
+
+        conn = self._get_conn()
+        cursor = conn.cursor()
+
+        # Получаем ID роли admin
+        cursor.execute("SELECT id FROM roles WHERE name = 'admin'")
+        role_row = cursor.fetchone()
+
+        if role_row:
+            role_id = role_row[0]
+
+            # Получаем пароль из переменных окружения или используем admin по умолчанию
+            admin_username = os.getenv("ADMIN_USERNAME", "admin")
+            admin_password = os.getenv("ADMIN_PASSWORD", "admin")
+
+            # Создаём хеш пароля
+            password_hash = bcrypt.hashpw(
+                admin_password.encode("utf-8"), bcrypt.gensalt()
+            ).decode("utf-8")
+
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO users (username, password_hash, full_name, role_id, is_admin)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+                    (admin_username, password_hash, "Администратор", role_id, True),
+                )
+
+                conn.commit()
+                print(
+                    f"✅ Default admin user created (username: {admin_username}, password: {admin_password})"
+                )
+                if admin_password == "admin":
+                    print("⚠️  PLEASE CHANGE THE DEFAULT PASSWORD!")
+            except sqlite3.IntegrityError:
+                # Пользователь уже существует
+                pass
+
+        conn.close()
 
     def _get_conn(self):
         conn = sqlite3.connect(self.db_path, timeout=5)

@@ -191,12 +191,10 @@ def improve_search_query(original_query: str, context: str = None) -> str:
             return original_query
 
 
-@tool
-def classify_request(
+def _classify_request_internal(
     dialogue_history: str = None, text: str = None, categories: List[str] = None
 ) -> str:
-    """Классификация запроса через LLM - анализирует весь диалог с пользователем для точной классификации проблемы. Возвращает категории проблем которые можно назначить заявке."""
-
+    """Внутренняя функция классификации для прямого вызова из ботов (без декоратора @tool)."""
     # Определяем текст для анализа
     if dialogue_history:
         analysis_text = dialogue_history
@@ -330,6 +328,14 @@ def classify_request(
 
 
 @tool
+def classify_request(
+    dialogue_history: str = None, text: str = None, categories: List[str] = None
+) -> str:
+    """Классификация запроса через LLM - анализирует весь диалог с пользователем для точной классификации проблемы. Возвращает категории проблем которые можно назначить заявке."""
+    return _classify_request_internal(dialogue_history, text, categories)
+
+
+@tool
 def call_operator() -> str:
     """ВНИМАНИЕ: Используй ТОЛЬКО в крайних случаях! Вызывает живого оператора для очень сложных технических проблем, которые невозможно решить самостоятельно или через поиск в базе знаний. Перед использованием обязательно попробуй все другие способы помочь пользователю."""
     print(
@@ -360,3 +366,87 @@ def get_system_status() -> str:
         print(f"[AGENT ERROR] Ошибка проверки статуса: {e}")
         logger.error(f"System status error: {e}")
         return "Возникли проблемы с проверкой статуса системы."
+
+
+@tool
+async def suggest_similar_problems(query: str) -> str:
+    """Предлагает пользователю 3 похожие проблемы из базы знаний с готовыми решениями.
+    Используй когда:
+    - Пользователь описал проблему но ещё не получил полный ответ
+    - Хочешь дать варианты похожих решений
+    - Проблема может иметь несколько вариантов решения
+
+    Возвращает специальный формат для показа кнопок с вариантами."""
+    print(f"[AGENT ACTION] Предлагаю похожие проблемы для: '{query[:50]}...'")
+
+    try:
+        from app.db.database import KnowledgeSessionLocal
+        from app.db import tickets_crud as crud
+        from sentence_transformers import SentenceTransformer
+        import numpy as np
+
+        # Инициализируем модель для семантического поиска
+        model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+        async with KnowledgeSessionLocal() as session:
+            # Загружаем все чанки
+            chunks = await crud.load_all_chunks(session)
+
+            if not chunks:
+                return "База знаний пуста"
+
+            # Векторизуем запрос
+            query_embedding = model.encode([query])[0]
+
+            # Векторизуем все чанки и считаем схожесть
+            chunk_embeddings = []
+            for chunk in chunks:
+                if chunk.embedding:
+                    emb = np.frombuffer(chunk.embedding, dtype=np.float32)
+                    chunk_embeddings.append(emb)
+                else:
+                    chunk_embeddings.append(np.zeros_like(query_embedding))
+
+            chunk_embeddings = np.array(chunk_embeddings)
+
+            # Косинусная схожесть
+            similarities = np.dot(chunk_embeddings, query_embedding) / (
+                np.linalg.norm(chunk_embeddings, axis=1)
+                * np.linalg.norm(query_embedding)
+                + 1e-8
+            )
+
+            # Топ-3 результата
+            top_indices = np.argsort(similarities)[::-1][:3]
+
+            results = []
+            for idx in top_indices:
+                chunk = chunks[idx]
+                score = similarities[idx]
+                if score > 0.3:  # Минимальный порог схожести
+                    # Формируем краткое описание (первые 100 символов)
+                    preview = chunk.content[:100].replace("\n", " ").strip()
+                    if len(chunk.content) > 100:
+                        preview += "..."
+
+                    results.append(
+                        {
+                            "id": chunk.id,
+                            "preview": preview,
+                            "score": float(score),
+                            "source": chunk.source_file,
+                        }
+                    )
+
+            if not results:
+                return "Не найдено похожих проблем"
+
+            # Форматируем результат специальным образом для бота
+            response = "SUGGEST_SIMILAR_PROBLEMS:::" + str(results)
+            print(f"[AGENT] Найдено {len(results)} похожих проблем")
+            return response
+
+    except Exception as e:
+        print(f"[AGENT ERROR] Ошибка поиска похожих проблем: {e}")
+        logger.error(f"Similar problems search error: {e}")
+        return f"Ошибка поиска: {e}"

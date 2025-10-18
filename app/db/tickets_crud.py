@@ -183,6 +183,23 @@ async def update_ticket_classification(
     return ticket
 
 
+async def mark_operator_requested(
+    session: AsyncSession,
+    ticket_id: int,
+) -> Optional[models.Ticket]:
+    """Отметить что для тикета запрошен оператор."""
+    ticket = await session.get(models.Ticket, ticket_id)
+    if ticket is None:
+        return None
+
+    ticket.operator_requested = True
+    ticket.updated_at = datetime.utcnow()
+
+    await session.commit()
+    await session.refresh(ticket)
+    return ticket
+
+
 async def set_first_response_time(
     session: AsyncSession,
     ticket_id: int,
@@ -287,6 +304,16 @@ async def load_all_chunks(session: AsyncSession) -> list[models.DocumentChunk]:
         select(models.DocumentChunk).order_by(models.DocumentChunk.id)
     )
     return result.scalars().all()
+
+
+async def get_chunk_by_id(
+    session: AsyncSession, chunk_id: int
+) -> Optional[models.DocumentChunk]:
+    """Получить чанк по ID."""
+    result = await session.execute(
+        select(models.DocumentChunk).where(models.DocumentChunk.id == chunk_id)
+    )
+    return result.scalar_one_or_none()
 
 
 async def count_document_chunks(session: AsyncSession) -> int:

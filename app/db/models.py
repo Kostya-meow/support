@@ -39,6 +39,9 @@ class Ticket(Base):
     title = Column(String(255), nullable=True)
     summary = Column(Text, nullable=True)  # Краткое описание заявки (авто-генерируется)
     classification = Column(Text, nullable=True)  # Классификация проблемы от AI агента
+    operator_requested = Column(
+        Boolean, default=False, nullable=False
+    )  # Флаг запроса оператора
     status = Column(String(20), default=TicketStatus.OPEN, nullable=False)
     priority = Column(String(10), default="medium", nullable=False)  # low, medium, high
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
