@@ -62,20 +62,3 @@ class MessageCreate(BaseModel):
 
 class KnowledgeStats(BaseModel):
     total_entries: int
-
-
-# Обратная совместимость
-class ConversationRead(TicketRead):
-    """Для обратной совместимости с API."""
-
-    @property
-    def operator_requested(self) -> bool:
-        return self.status in [TicketStatus.OPEN, TicketStatus.IN_PROGRESS]
-
-    @property
-    def unread_count(self) -> int:
-        return 0  # Пока не реализуем подсчет непрочитанных
-
-    @property
-    def is_archived(self) -> bool:
-        return self.status == TicketStatus.ARCHIVED

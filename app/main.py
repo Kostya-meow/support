@@ -45,7 +45,6 @@ from app.db import (
     KnowledgeStats,
     MessageCreate,
     MessageRead,
-    ConversationRead,
 )
 from app.rag.hybrid_service import get_hybrid_rag_service, HybridRAGService
 from app.services import ConnectionManager, SimulatorService
@@ -668,16 +667,15 @@ async def api_list_conversations(
     return tickets
 
 
-@app.get("/api/conversations/{conversation_id}", response_model=ConversationRead)
+@app.get("/api/conversations/{conversation_id}", response_model=TicketRead)
 async def api_get_conversation(
     conversation_id: int,
     session: AsyncSession = Depends(get_tickets_session),
     _: None = Depends(auth.ensure_api_auth),
-) -> ConversationRead:
+) -> TicketRead:
     ticket = await crud.get_ticket_by_id(session, conversation_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    # Возвращаем полные данные о тикете
     return TicketRead.from_orm(ticket)
 
 

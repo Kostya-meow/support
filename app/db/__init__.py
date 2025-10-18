@@ -22,7 +22,6 @@ from app.db.schemas import (
     TicketRead,
     MessageRead,
     MessageCreate,
-    ConversationRead,
     KnowledgeStats,
 )
 
@@ -45,7 +44,6 @@ __all__ = [
     "TicketRead",
     "MessageRead",
     "MessageCreate",
-    "ConversationRead",
     "KnowledgeStats",
     # CRUD module
     "tickets_crud",
