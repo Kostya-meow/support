@@ -3,16 +3,90 @@
 """
 
 import logging
-from typing import List, Dict, Any
+import threading
+from typing import List, Dict, Any, Optional
 from agno.tools import tool
 
 logger = logging.getLogger(__name__)
 
+# Thread-local хранилище для передачи данных между агентом и ботом
+_thread_local = threading.local()
+
+
+def set_current_conversation_id(conversation_id: int):
+    """Установить ID текущего разговора для thread"""
+    _thread_local.conversation_id = conversation_id
+
+
+def get_current_conversation_id() -> Optional[int]:
+    """Получить ID текущего разговора"""
+    return getattr(_thread_local, "conversation_id", None)
+
+
+# Глобальное хранилище для передачи данных между агентом и ботом
+# Ключ - conversation_id, значение - список похожих результатов
+_similar_suggestions_storage: Dict[int, List[Dict[str, Any]]] = {}
+
+# Храним timestamp последнего показа кнопок для каждого conversation
+# Чтобы не спамить кнопками слишком часто
+_last_suggestions_time: Dict[int, float] = {}
+
+# Минимальный интервал между показами кнопок (в секундах)
+MIN_SUGGESTIONS_INTERVAL = 60  # 1 минута
+
+
+def store_similar_suggestions(conversation_id: int, suggestions: List[Dict[str, Any]]):
+    """Сохранить похожие результаты для разговора"""
+    import time
+
+    global _similar_suggestions_storage, _last_suggestions_time
+
+    # Проверяем, не показывали ли мы кнопки недавно
+    last_time = _last_suggestions_time.get(conversation_id, 0)
+    current_time = time.time()
+
+    if current_time - last_time < MIN_SUGGESTIONS_INTERVAL:
+        logger.info(
+            f"Skipping suggestions for conversation {conversation_id} - shown too recently "
+            f"({int(current_time - last_time)}s ago, minimum {MIN_SUGGESTIONS_INTERVAL}s)"
+        )
+        return  # Не сохраняем - слишком рано
+
+    _similar_suggestions_storage[conversation_id] = suggestions
+    _last_suggestions_time[conversation_id] = current_time
+    logger.info(
+        f"Stored {len(suggestions)} similar suggestions for conversation {conversation_id}"
+    )
+
+
+def get_similar_suggestions(conversation_id: int) -> List[Dict[str, Any]] | None:
+    """Получить похожие результаты для разговора и очистить хранилище"""
+    global _similar_suggestions_storage
+    suggestions = _similar_suggestions_storage.pop(conversation_id, None)
+    if suggestions:
+        logger.info(
+            f"Retrieved {len(suggestions)} similar suggestions for conversation {conversation_id}"
+        )
+    return suggestions
+
 
 @tool
-async def search_knowledge_base(query: str, category: str = None) -> str:
-    """Поиск в базе знаний - твой главный инструмент! Используй для любых технических вопросов, инструкций, документации. Всегда ищи сначала здесь перед тем как отвечать."""
-    print(f"[AGENT ACTION] Поиск в базе знаний: '{query}'")
+async def search_knowledge_base(query: str, suggest_similar: bool = False) -> str:
+    """Поиск в базе знаний - твой главный инструмент!
+
+    Параметры:
+    - query: запрос для поиска
+    - suggest_similar: если True, покажет пользователю 3 кнопки с похожими проблемами для выбора.
+      Используй suggest_similar=True ТОЛЬКО когда:
+      * Пользователь описывает общую проблему без деталей (например: "интернет не работает", "компьютер тормозит")
+      * Есть несколько похожих решений и пользователь может выбрать подходящее
+      * НЕ используй если пользователь задал конкретный вопрос или нужен прямой ответ
+
+    По умолчанию (suggest_similar=False) - обычный поиск с прямым ответом.
+    """
+    print(
+        f"[AGENT ACTION] Поиск в базе знаний: '{query}' (suggest_similar={suggest_similar})"
+    )
 
     try:
         from app.db.database import KnowledgeSessionLocal
@@ -51,6 +125,7 @@ async def search_knowledge_base(query: str, category: str = None) -> str:
                     )
                     results.append(
                         {
+                            "id": chunk.id,
                             "content": chunk.content,
                             "source": chunk.source_file,
                             "score": float(similarity),
@@ -64,6 +139,7 @@ async def search_knowledge_base(query: str, category: str = None) -> str:
                         relevance = chunk.content.lower().count(query_lower)
                         text_results.append(
                             {
+                                "id": chunk.id,
                                 "content": chunk.content,
                                 "source": chunk.source_file,
                                 "score": relevance / 10.0,  # Нормализуем
@@ -83,7 +159,7 @@ async def search_knowledge_base(query: str, category: str = None) -> str:
 
             print(f"[AGENT] Найдено {len(all_results)} результатов")
 
-            # Формируем ответ из топ-3 результатов
+            # Формируем обычный текстовый ответ из топ-3 результатов
             response_parts = []
             for i, result in enumerate(all_results[:3], 1):
                 content = result["content"]
@@ -103,6 +179,47 @@ async def search_knowledge_base(query: str, category: str = None) -> str:
                 )
 
             response = "\n\n".join(response_parts)
+
+            # Дополнительно: если нужно показать кнопки с похожими вариантами
+            if suggest_similar and len(all_results) >= 3:
+                print("[AGENT] Сохраняю варианты для показа кнопок пользователю")
+
+                # Берём топ-3
+                top_3 = all_results[:3]
+                suggestions = []
+
+                for result in top_3:
+                    # Создаём краткое описание для кнопки (первые 80 символов)
+                    preview = result["content"][:80].replace("\n", " ").strip()
+                    if len(result["content"]) > 80:
+                        preview += "..."
+
+                    suggestions.append(
+                        {
+                            "id": result["id"],
+                            "preview": preview,
+                            "score": result["score"],
+                            "source": result["source"],
+                            "full_content": result[
+                                "content"
+                            ],  # Полный текст для отображения
+                        }
+                    )
+
+                # Сохраняем в хранилище (если известен conversation_id)
+                conversation_id = get_current_conversation_id()
+                if conversation_id:
+                    store_similar_suggestions(conversation_id, suggestions)
+                    print(
+                        f"[AGENT] Сохранил {len(suggestions)} вариантов для conversation {conversation_id}"
+                    )
+                else:
+                    print(
+                        "[AGENT WARNING] conversation_id не установлен, кнопки не будут показаны!"
+                    )
+
+                print(f"[AGENT] Кнопки будут показаны дополнительным сообщением")
+
             print(
                 f"[AGENT] Возвращаю результат поиска (длина: {len(response)} символов)"
             )
@@ -368,85 +485,4 @@ def get_system_status() -> str:
         return "Возникли проблемы с проверкой статуса системы."
 
 
-@tool
-async def suggest_similar_problems(query: str) -> str:
-    """Предлагает пользователю 3 похожие проблемы из базы знаний с готовыми решениями.
-    Используй когда:
-    - Пользователь описал проблему но ещё не получил полный ответ
-    - Хочешь дать варианты похожих решений
-    - Проблема может иметь несколько вариантов решения
-
-    Возвращает специальный формат для показа кнопок с вариантами."""
-    print(f"[AGENT ACTION] Предлагаю похожие проблемы для: '{query[:50]}...'")
-
-    try:
-        from app.db.database import KnowledgeSessionLocal
-        from app.db import tickets_crud as crud
-        from sentence_transformers import SentenceTransformer
-        import numpy as np
-
-        # Инициализируем модель для семантического поиска
-        model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-
-        async with KnowledgeSessionLocal() as session:
-            # Загружаем все чанки
-            chunks = await crud.load_all_chunks(session)
-
-            if not chunks:
-                return "База знаний пуста"
-
-            # Векторизуем запрос
-            query_embedding = model.encode([query])[0]
-
-            # Векторизуем все чанки и считаем схожесть
-            chunk_embeddings = []
-            for chunk in chunks:
-                if chunk.embedding:
-                    emb = np.frombuffer(chunk.embedding, dtype=np.float32)
-                    chunk_embeddings.append(emb)
-                else:
-                    chunk_embeddings.append(np.zeros_like(query_embedding))
-
-            chunk_embeddings = np.array(chunk_embeddings)
-
-            # Косинусная схожесть
-            similarities = np.dot(chunk_embeddings, query_embedding) / (
-                np.linalg.norm(chunk_embeddings, axis=1)
-                * np.linalg.norm(query_embedding)
-                + 1e-8
-            )
-
-            # Топ-3 результата
-            top_indices = np.argsort(similarities)[::-1][:3]
-
-            results = []
-            for idx in top_indices:
-                chunk = chunks[idx]
-                score = similarities[idx]
-                if score > 0.3:  # Минимальный порог схожести
-                    # Формируем краткое описание (первые 100 символов)
-                    preview = chunk.content[:100].replace("\n", " ").strip()
-                    if len(chunk.content) > 100:
-                        preview += "..."
-
-                    results.append(
-                        {
-                            "id": chunk.id,
-                            "preview": preview,
-                            "score": float(score),
-                            "source": chunk.source_file,
-                        }
-                    )
-
-            if not results:
-                return "Не найдено похожих проблем"
-
-            # Форматируем результат специальным образом для бота
-            response = "SUGGEST_SIMILAR_PROBLEMS:::" + str(results)
-            print(f"[AGENT] Найдено {len(results)} похожих проблем")
-            return response
-
-    except Exception as e:
-        print(f"[AGENT ERROR] Ошибка поиска похожих проблем: {e}")
-        logger.error(f"Similar problems search error: {e}")
-        return f"Ошибка поиска: {e}"
+# suggest_similar_problems удалена - функциональность перенесена в search_knowledge_base с параметром suggest_similar=True

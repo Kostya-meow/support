@@ -24,6 +24,9 @@ class RAGResult:
     operator_requested: bool = False
     filter_info: dict[str, Any] | None = None
     confidence_score: float = 0.3  # Низкий score = высокая уверенность
+    similar_suggestions: List[Dict[str, Any]] | None = (
+        None  # Список похожих решений для кнопок
+    )
 
 
 class HybridRAGService:
@@ -133,6 +136,14 @@ class HybridRAGService:
         if self.use_agent and self.agent:
             print(f"HybridRAG DEBUG: Using agent to process query")
             try:
+                # Устанавливаем conversation_id для текущего потока
+                from app.rag.agent_tools import (
+                    set_current_conversation_id,
+                    get_similar_suggestions,
+                )
+
+                set_current_conversation_id(conversation_id)
+
                 # Получаем историю диалога для контекста
                 chat_history = []
                 if self.rag_service and hasattr(self.rag_service, "get_chat_history"):
@@ -158,6 +169,13 @@ class HybridRAGService:
                     user_text, chat_history=chat_history
                 )
 
+                # Получаем похожие предложения из хранилища (если есть)
+                similar_suggestions = get_similar_suggestions(conversation_id)
+                if similar_suggestions:
+                    print(
+                        f"HybridRAG DEBUG: Got {len(similar_suggestions)} similar suggestions for buttons"
+                    )
+
                 # Сохраняем ответ бота в историю
                 if self.rag_service and hasattr(self.rag_service, "add_chat_message"):
                     try:
@@ -172,6 +190,7 @@ class HybridRAGService:
                     final_answer=response_text,
                     operator_requested="оператор" in response_text.lower(),
                     confidence_score=0.3,  # Низкий score = высокая уверенность
+                    similar_suggestions=similar_suggestions,  # Добавляем предложения
                 )
             except Exception as e:
                 logger.error(f"Agent processing failed: {e}")

@@ -32,7 +32,6 @@ class RAGAgent:
             classify_request,
             call_operator,
             get_system_status,
-            suggest_similar_problems,
         )
 
         # Настройка модели
@@ -56,7 +55,6 @@ class RAGAgent:
                 classify_request,
                 call_operator,
                 get_system_status,
-                suggest_similar_problems,
             ],
             instructions=system_instructions,
             debug_mode=False,

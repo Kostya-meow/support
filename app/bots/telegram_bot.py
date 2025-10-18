@@ -365,45 +365,36 @@ def create_dispatcher(
             or "Я пока не нашла ответ. Попробуйте уточнить вопрос."
         )
 
-        # Проверяем на специальный формат с похожими проблемами
-        if "SUGGEST_SIMILAR_PROBLEMS:::" in answer_text:
-            # Извлекаем данные и текст ответа
-            parts = answer_text.split("SUGGEST_SIMILAR_PROBLEMS:::")
-            actual_text = parts[0].strip()
-            suggestions_data = parts[1].strip() if len(parts) > 1 else ""
+        # Проверяем есть ли похожие предложения для показа кнопок
+        if rag_result.similar_suggestions:
+            suggestions = rag_result.similar_suggestions
+            print(
+                f"TELEGRAM BOT: Showing {len(suggestions)} similar suggestions as buttons"
+            )
 
             # Показываем основной ответ
-            if actual_text:
-                await message.answer(actual_text, parse_mode="HTML")
+            await message.answer(answer_text, parse_mode="HTML")
 
-            # Парсим данные похожих проблем и создаём кнопки
-            try:
-                import ast
-
-                suggestions = ast.literal_eval(suggestions_data)
-
-                if suggestions and isinstance(suggestions, list):
-                    buttons = []
-                    for item in suggestions[:3]:  # Максимум 3 кнопки
-                        chunk_id = item.get("id")
-                        preview = item.get("preview", "")[:60]  # Ограничиваем длину
-                        buttons.append(
-                            [
-                                InlineKeyboardButton(
-                                    text=f"📄 {preview}...",
-                                    callback_data=f"similar::{chunk_id}",
-                                )
-                            ]
+            # Создаём кнопки из предложений
+            buttons = []
+            for item in suggestions[:3]:  # Максимум 3 кнопки
+                chunk_id = item.get("id")
+                preview = item.get("preview", "")[:60]  # Ограничиваем длину
+                buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            text=f"📄 {preview}",
+                            callback_data=f"similar::{chunk_id}",
                         )
+                    ]
+                )
 
-                    if buttons:
-                        similar_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-                        await message.answer(
-                            "💡 Возможно, вам помогут эти решения:",
-                            reply_markup=similar_kb,
-                        )
-            except Exception as e:
-                logger.warning(f"Failed to parse similar problems: {e}")
+            if buttons:
+                similar_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+                await message.answer(
+                    "🔍 Возможно, ваша проблема похожа на одну из этих:",
+                    reply_markup=similar_kb,
+                )
 
             return  # Завершаем обработку
 
