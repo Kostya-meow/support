@@ -783,14 +783,14 @@
                 }
                 
                 const data = await response.json();
-                displaySummary(data.summary, data.classification);
+                displaySummary(data.summary, data.classification, data.priority);
             } catch (error) {
                 console.error('Error loading summary:', error);
                 summaryContent.innerHTML = '<div class="summary-error">Ошибка загрузки саммари</div>';
             }
         }
 
-        function displaySummary(summary, classification) {
+        function displaySummary(summary, classification, priority) {
             let html = `<div class="summary-text">${summary}</div>`;
             
             if (classification) {
@@ -805,6 +805,36 @@
                 });
                 
                 html += `</div></div>`;
+            }
+            
+            // Добавляем приоритет
+            if (priority) {
+                const priorityLabels = {
+                    'low': 'Низкий',
+                    'medium': 'Средний',
+                    'high': 'Высокий'
+                };
+                const priorityColors = {
+                    'low': '#4caf50',
+                    'medium': '#ff9800',
+                    'high': '#f44336'
+                };
+                const priorityIcons = {
+                    'low': '⬇️',
+                    'medium': '➡️',
+                    'high': '⬆️'
+                };
+                
+                const label = priorityLabels[priority] || priority;
+                const color = priorityColors[priority] || '#999';
+                const icon = priorityIcons[priority] || '•';
+                
+                html += `<div class="priority-container">
+                    <div class="priority-header">${icon} Приоритет:</div>
+                    <span class="priority-badge" style="background-color: ${color}20; color: ${color}; border: 1px solid ${color};">
+                        ${label}
+                    </span>
+                </div>`;
             }
             
             summaryContent.innerHTML = html;

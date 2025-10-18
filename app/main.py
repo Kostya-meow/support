@@ -364,6 +364,52 @@ async def get_dashboard_stats(
     }
 
 
+@app.get("/api/dashboard/active_sessions")
+async def get_active_sessions_stats(
+    request: Request,
+    session: AsyncSession = Depends(get_tickets_session),
+    _: None = Depends(auth.ensure_api_auth),
+):
+    """Получить статистику ВСЕХ активных диалогов (бот-пользователь И оператор-пользователь) по классам и приоритетам"""
+    if not auth.is_authenticated_request(request):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Получаем ВСЕ активные тикеты (статус open или in_progress)
+    active_tickets = await crud.list_tickets(session, archived=False)
+
+    # Статистика по приоритетам
+    priority_stats = {
+        "low": 0,
+        "medium": 0,
+        "high": 0,
+    }
+
+    # Статистика по классам (категориям)
+    classification_stats = {}
+
+    for ticket in active_tickets:
+        # Подсчет по приоритетам
+        priority = ticket.priority or "medium"
+        if priority in priority_stats:
+            priority_stats[priority] += 1
+
+        # Подсчет по классификациям
+        if ticket.classification:
+            # Классификация может содержать несколько категорий через запятую
+            categories = [cat.strip() for cat in ticket.classification.split(",")]
+            for category in categories:
+                if category:
+                    classification_stats[category] = (
+                        classification_stats.get(category, 0) + 1
+                    )
+
+    return {
+        "total_active": len(active_tickets),
+        "by_priority": priority_stats,
+        "by_classification": classification_stats,
+    }
+
+
 @app.post("/admin/knowledge/upload")
 async def upload_knowledge(
     request: Request,
@@ -896,6 +942,7 @@ async def get_ticket_summary(
         "ticket_id": conversation_id,
         "summary": summary,
         "classification": ticket.classification,
+        "priority": ticket.priority,
         "status": ticket.status,
         "created_at": ticket.created_at.isoformat(),
         "message_count": len(messages),

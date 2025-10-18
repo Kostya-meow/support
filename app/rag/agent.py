@@ -30,6 +30,7 @@ class RAGAgent:
         from app.rag.agent_tools import (
             search_knowledge_base,
             classify_request,
+            set_priority,
             call_operator,
             get_system_status,
         )
@@ -53,6 +54,7 @@ class RAGAgent:
             tools=[
                 search_knowledge_base,
                 classify_request,
+                set_priority,
                 call_operator,
                 get_system_status,
             ],

@@ -124,6 +124,48 @@ def create_dispatcher(
 
             await session.refresh(db_message)
             await session.refresh(ticket, ["messages"])
+
+            # Автоматическое обновление ТОЛЬКО классификации (только для сообщений пользователя)
+            # Приоритет устанавливается ТОЛЬКО через MCP tool агентом
+            if sender == USER_SENDER:
+                try:
+                    from app.rag.agent_tools import auto_update_classification
+
+                    # Подсчитываем количество сообщений от пользователя
+                    user_message_count = sum(
+                        1 for msg in ticket.messages if msg.sender == USER_SENDER
+                    )
+
+                    # Формируем историю диалога
+                    dialogue_parts = []
+                    for msg in ticket.messages:
+                        role = (
+                            "Пользователь"
+                            if msg.sender == USER_SENDER
+                            else "Бот" if msg.sender == BOT_SENDER else "Оператор"
+                        )
+                        dialogue_parts.append(f"{role}: {msg.text}")
+                    dialogue_history = "\n".join(dialogue_parts)
+
+                    # Вызываем автоматическое обновление ТОЛЬКО классификации
+                    update_result = auto_update_classification(
+                        conversation_id=ticket.id,
+                        dialogue_history=dialogue_history,
+                        message_count=user_message_count,
+                        current_classification=ticket.classification,
+                    )
+
+                    if update_result.get("updated"):
+                        logger.info(
+                            f"Auto-updated classification for ticket {ticket.id}: "
+                            f"classification={update_result.get('classification')}"
+                        )
+                        # Обновляем ticket в текущей сессии
+                        await session.refresh(ticket)
+
+                except Exception as e:
+                    logger.warning(f"Failed to auto-update classification: {e}")
+
             tickets_payload = await _serialize_tickets(session)
 
         await _broadcast_message(ticket.id, MessageRead.from_orm(db_message))

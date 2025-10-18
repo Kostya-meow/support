@@ -101,6 +101,40 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Активные сессии -->
+                    <div class="active-sessions-section">
+                        <h2 class="section-title">📊 Активные диалоги</h2>
+                        
+                        <div class="stats-grid stats-grid-four">
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalActiveSessions">-</div>
+                                <div class="stat-label">Всего активных</div>
+                            </div>
+                            
+                            <div class="stat-card priority-low">
+                                <div class="stat-value" id="lowPrioritySessions">-</div>
+                                <div class="stat-label">⬇️ Низкий приоритет</div>
+                            </div>
+                            
+                            <div class="stat-card priority-medium">
+                                <div class="stat-value" id="mediumPrioritySessions">-</div>
+                                <div class="stat-label">➡️ Средний приоритет</div>
+                            </div>
+                            
+                            <div class="stat-card priority-high">
+                                <div class="stat-value" id="highPrioritySessions">-</div>
+                                <div class="stat-label">⬆️ Высокий приоритет</div>
+                            </div>
+                        </div>
+                        
+                        <div class="classifications-container" id="classificationsContainer">
+                            <div class="classifications-header">Распределение по категориям:</div>
+                            <div class="classifications-grid" id="classificationsGrid">
+                                <!-- Динамически заполняется -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -121,6 +155,9 @@
                 updateStatCards(data);
                 updateCharts(data);
                 
+                // Загружаем данные об активных сессиях
+                await loadActiveSessionsData();
+                
                 const loadingEl = document.getElementById('loading');
                 const dashboardContent = document.getElementById('dashboard-content');
                 loadingEl.classList.add('hidden');
@@ -130,6 +167,54 @@
                 const loadingEl = document.getElementById('loading');
                 loadingEl.classList.remove('hidden');
                 loadingEl.textContent = 'Ошибка загрузки данных';
+            }
+        }
+
+        async function loadActiveSessionsData() {
+            try {
+                const response = await fetch('/api/dashboard/active_sessions');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch active sessions data');
+                }
+                
+                const data = await response.json();
+                updateActiveSessionsStats(data);
+            } catch (error) {
+                console.error('Error loading active sessions data:', error);
+            }
+        }
+
+        function updateActiveSessionsStats(data) {
+            // Обновляем общее количество активных сессий
+            document.getElementById('totalActiveSessions').textContent = data.total_active || 0;
+            
+            // Обновляем статистику по приоритетам
+            document.getElementById('lowPrioritySessions').textContent = data.by_priority.low || 0;
+            document.getElementById('mediumPrioritySessions').textContent = data.by_priority.medium || 0;
+            document.getElementById('highPrioritySessions').textContent = data.by_priority.high || 0;
+            
+            // Обновляем классификации
+            const classificationsGrid = document.getElementById('classificationsGrid');
+            const byClassification = data.by_classification || {};
+            
+            if (Object.keys(byClassification).length === 0) {
+                classificationsGrid.innerHTML = '<div class="no-classifications">Нет данных о классификациях</div>';
+            } else {
+                // Сортируем категории по количеству (по убыванию)
+                const sortedCategories = Object.entries(byClassification)
+                    .sort((a, b) => b[1] - a[1]);
+                
+                let html = '';
+                sortedCategories.forEach(([category, count]) => {
+                    html += `
+                        <div class="classification-item">
+                            <span class="classification-name">${category}</span>
+                            <span class="classification-count">${count}</span>
+                        </div>
+                    `;
+                });
+                
+                classificationsGrid.innerHTML = html;
             }
         }
 

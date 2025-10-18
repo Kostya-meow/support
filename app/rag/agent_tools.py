@@ -452,6 +452,133 @@ def classify_request(
     return _classify_request_internal(dialogue_history, text, categories)
 
 
+def _set_priority_internal(dialogue_history: str) -> str:
+    """Внутренняя функция установки приоритета для прямого вызова из ботов (без декоратора @tool)."""
+    print(
+        f"[AGENT ACTION] Определение приоритета диалога через LLM (длина: {len(dialogue_history)} символов)"
+    )
+
+    try:
+        from app.rag.service import get_llm_client
+        import yaml
+
+        # Загружаем конфигурацию
+        with open("configs/rag_config.yaml", "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        # Получаем промпт из конфига
+        priority_prompt_template = config.get("agent", {}).get(
+            "set_priority_prompt", ""
+        )
+
+        if not priority_prompt_template:
+            print("[AGENT WARNING] Промпт для set_priority не найден в конфиге")
+            return "medium"
+
+        # Формируем промпт для определения приоритета
+        priority_prompt = priority_prompt_template.format(
+            dialogue_text=dialogue_history
+        )
+
+        # Получаем LLM клиент
+        llm_client = get_llm_client()
+
+        # Определяем приоритет через LLM
+        response = llm_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": priority_prompt}],
+            max_tokens=10,
+            temperature=0.1,
+        )
+
+        llm_result = response.choices[0].message.content.strip().lower()
+
+        # Парсим результат и проверяем валидность
+        valid_priorities = ["low", "medium", "high"]
+
+        # Извлекаем приоритет из ответа LLM
+        priority = "medium"  # По умолчанию
+        for valid_priority in valid_priorities:
+            if valid_priority in llm_result:
+                priority = valid_priority
+                break
+
+        print(f"[AGENT] Приоритет диалога определен как: {priority}")
+        logger.info(f"Dialogue priority set to: {priority}")
+
+        return priority
+
+    except Exception as e:
+        print(f"[AGENT ERROR] Ошибка определения приоритета: {e}")
+        logger.error(f"Priority determination error: {e}")
+        return "medium"  # По умолчанию при ошибке
+
+
+@tool
+def set_priority(dialogue_history: str = None) -> str:
+    """Определение приоритета заявки на основе важности диалога - анализирует весь диалог и устанавливает приоритет (низкий/средний/высокий).
+
+    Используй этот инструмент когда:
+    - Пользователь описывает критическую проблему (блокирует работу, потеря данных, безопасность)
+    - Проблема влияет на многих пользователей или критические системы
+    - Эмоциональный тон указывает на срочность
+    - Нужно понять, насколько важна проблема для приоритизации обработки
+
+    Параметры:
+    - dialogue_history: полный текст диалога с пользователем для анализа
+
+    Возвращает описание установленного приоритета.
+    """
+    if not dialogue_history:
+        return (
+            "Ошибка: необходимо предоставить историю диалога для определения приоритета"
+        )
+
+    priority = _set_priority_internal(dialogue_history)
+
+    # Сохраняем приоритет в ticket через conversation_id
+    conversation_id = get_current_conversation_id()
+    if conversation_id:
+        try:
+            import asyncio
+            from app.db.database import TicketsSessionLocal
+            from app.db import tickets_crud as crud
+
+            async def update_priority():
+                async with TicketsSessionLocal() as session:
+                    # Получаем ticket по conversation_id (это ID тикета)
+                    ticket = await crud.get_ticket_by_id(session, conversation_id)
+                    if ticket:
+                        ticket.priority = priority
+                        await session.commit()
+                        print(
+                            f"[AGENT] Обновлен приоритет ticket {conversation_id}: {priority}"
+                        )
+                    else:
+                        print(
+                            f"[AGENT WARNING] Ticket {conversation_id} не найден для обновления приоритета"
+                        )
+
+            # Запускаем асинхронную функцию
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(update_priority())
+            else:
+                loop.run_until_complete(update_priority())
+
+        except Exception as e:
+            print(f"[AGENT ERROR] Ошибка сохранения приоритета в БД: {e}")
+            logger.error(f"Failed to save priority to database: {e}")
+
+    priority_labels = {
+        "low": "низкий",
+        "medium": "средний",
+        "high": "высокий",
+    }
+
+    return f"Приоритет заявки установлен: {priority_labels.get(priority, priority)}"
+
+
 @tool
 def call_operator() -> str:
     """ВНИМАНИЕ: Используй ТОЛЬКО в крайних случаях! Вызывает живого оператора для очень сложных технических проблем, которые невозможно решить самостоятельно или через поиск в базе знаний. Перед использованием обязательно попробуй все другие способы помочь пользователю."""
@@ -483,6 +610,191 @@ def get_system_status() -> str:
         print(f"[AGENT ERROR] Ошибка проверки статуса: {e}")
         logger.error(f"System status error: {e}")
         return "Возникли проблемы с проверкой статуса системы."
+
+
+def should_update_classification_and_priority(
+    current_classification: str,
+    current_priority: str,
+    recent_messages: str,
+    message_count: int,
+) -> bool:
+    """Определяет, нужно ли обновить классификацию и приоритет на основе анализа диалога."""
+    try:
+        from app.rag.service import get_llm_client
+        import yaml
+
+        # Загружаем конфигурацию
+        with open("configs/rag_config.yaml", "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        auto_update_config = config.get("agent", {}).get("auto_update", {})
+
+        # Проверяем минимальное количество сообщений
+        min_messages = auto_update_config.get("min_messages_before_update", 2)
+        if message_count < min_messages:
+            print(
+                f"[AUTO_UPDATE] Недостаточно сообщений ({message_count} < {min_messages})"
+            )
+            return False
+
+        # Проверяем периодичность обновления
+        update_every = auto_update_config.get("update_every_n_messages", 3)
+        if message_count % update_every != 0:
+            print(
+                f"[AUTO_UPDATE] Не время обновлять (сообщение {message_count}, обновляем каждые {update_every})"
+            )
+            return False
+
+        # Получаем промпт для определения необходимости обновления
+        should_update_prompt_template = auto_update_config.get(
+            "should_update_prompt", ""
+        )
+
+        if not should_update_prompt_template:
+            print("[AUTO_UPDATE WARNING] Промпт should_update не найден в конфиге")
+            return False
+
+        # Формируем промпт
+        should_update_prompt = should_update_prompt_template.format(
+            current_classification=current_classification or "Не установлена",
+            current_priority=current_priority or "medium",
+            recent_messages=recent_messages,
+        )
+
+        # Получаем LLM клиент
+        llm_client = get_llm_client()
+
+        # Спрашиваем LLM нужно ли обновление
+        response = llm_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": should_update_prompt}],
+            max_tokens=5,
+            temperature=0.1,
+        )
+
+        llm_result = response.choices[0].message.content.strip().lower()
+
+        should_update = "yes" in llm_result
+
+        print(f"[AUTO_UPDATE] LLM решение: {llm_result} -> {should_update}")
+        logger.info(f"Should update classification/priority: {should_update}")
+
+        return should_update
+
+    except Exception as e:
+        print(f"[AUTO_UPDATE ERROR] Ошибка проверки необходимости обновления: {e}")
+        logger.error(f"Should update check error: {e}")
+        return False
+
+
+def auto_update_classification(
+    conversation_id: int,
+    dialogue_history: str,
+    message_count: int,
+    current_classification: str = None,
+) -> dict:
+    """Автоматическое обновление ТОЛЬКО классификации (без приоритета).
+
+    Приоритет устанавливается ТОЛЬКО через MCP tool set_priority агентом.
+
+    Возвращает dict с ключами:
+    - updated: bool - была ли обновлена классификация
+    - classification: str - новая классификация (если была обновлена)
+    """
+    try:
+        # Формируем последние сообщения для анализа
+        dialogue_lines = dialogue_history.split("\n")
+        recent_lines = (
+            dialogue_lines[-5:] if len(dialogue_lines) > 5 else dialogue_lines
+        )
+        recent_messages = "\n".join(recent_lines)
+
+        if len(recent_messages) < 1000 and len(dialogue_history) > 1000:
+            recent_messages = dialogue_history[-1000:]
+
+        # Проверяем нужно ли обновление (используем medium как фиктивный приоритет)
+        if not should_update_classification_and_priority(
+            current_classification or "Не установлена",
+            "medium",  # Фиктивный приоритет, т.к. мы его не обновляем
+            recent_messages,
+            message_count,
+        ):
+            return {"updated": False}
+
+        print(
+            f"[AUTO_UPDATE] Обновление классификации для conversation {conversation_id}"
+        )
+
+        # Обновляем ТОЛЬКО классификацию на основе ВСЕЙ истории
+        new_classification_result = _classify_request_internal(
+            dialogue_history=dialogue_history
+        )
+        new_classification = new_classification_result.replace(
+            "Классификация проблемы:", ""
+        ).strip()
+
+        print(f"[AUTO_UPDATE] Новая классификация: {new_classification}")
+
+        # Сохраняем в БД
+        import asyncio
+        from app.db.database import TicketsSessionLocal
+        from app.db import tickets_crud as crud
+
+        async def update_ticket():
+            async with TicketsSessionLocal() as session:
+                ticket = await crud.get_ticket_by_id(session, conversation_id)
+                if ticket:
+                    ticket.classification = new_classification
+                    await session.commit()
+                    print(
+                        f"[AUTO_UPDATE] Обновлена классификация ticket {conversation_id}: "
+                        f"classification={new_classification}"
+                    )
+                else:
+                    print(f"[AUTO_UPDATE WARNING] Ticket {conversation_id} не найден")
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(update_ticket())
+            else:
+                loop.run_until_complete(update_ticket())
+        except Exception as e:
+            print(f"[AUTO_UPDATE ERROR] Ошибка сохранения в БД: {e}")
+            logger.error(f"Failed to save classification update: {e}")
+
+        return {
+            "updated": True,
+            "classification": new_classification,
+        }
+
+    except Exception as e:
+        print(f"[AUTO_UPDATE ERROR] Ошибка автообновления классификации: {e}")
+        logger.error(f"Auto update classification error: {e}")
+        return {"updated": False}
+
+
+def auto_update_classification_and_priority(
+    conversation_id: int,
+    dialogue_history: str,
+    message_count: int,
+    current_classification: str = None,
+    current_priority: str = None,
+) -> dict:
+    """УСТАРЕВШАЯ ФУНКЦИЯ - оставлена для обратной совместимости.
+
+    Теперь используй:
+    - auto_update_classification() - для автоматического обновления классификации
+    - set_priority() MCP tool - для установки приоритета агентом
+
+    Эта функция теперь обновляет ТОЛЬКО классификацию.
+    """
+    return auto_update_classification(
+        conversation_id=conversation_id,
+        dialogue_history=dialogue_history,
+        message_count=message_count,
+        current_classification=current_classification,
+    )
 
 
 # suggest_similar_problems удалена - функциональность перенесена в search_knowledge_base с параметром suggest_similar=True
