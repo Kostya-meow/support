@@ -6,6 +6,8 @@ import logging
 import contextvars
 from typing import List, Dict, Any, Optional
 from agno.tools import tool
+from collections import deque
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,10 @@ logger = logging.getLogger(__name__)
 _conversation_id_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
     "conversation_id", default=None
 )
+
+# Очередь для отложенной отправки действий агента в Telegram
+_action_queue: deque = deque()
+_action_queue_lock = threading.Lock()
 
 
 def set_current_conversation_id(conversation_id: int):
@@ -26,6 +32,96 @@ def get_current_conversation_id() -> Optional[int]:
     conv_id = _conversation_id_var.get()
     print(f"[CONTEXT] get_current_conversation_id: {conv_id}")
     return conv_id
+
+
+def _send_action_to_telegram(action_text: str) -> None:
+    """Отправить действие агента в Telegram (через очередь)
+
+    Args:
+        action_text: Описание действия (например, "🔍 Поиск в базе знаний")
+    """
+    try:
+        conversation_id = get_current_conversation_id()
+        if not conversation_id:
+            print(f"[ACTION] Пропускаем отправку действия - нет conversation_id")
+            return
+
+        # Добавляем действие в очередь для отложенной обработки
+        with _action_queue_lock:
+            _action_queue.append(
+                {"conversation_id": conversation_id, "action_text": action_text}
+            )
+            print(f"[ACTION] Действие добавлено в очередь: {action_text}")
+
+    except Exception as e:
+        print(f"[ACTION ERROR] Не удалось добавить действие в очередь: {e}")
+        logger.warning(f"Failed to queue agent action: {e}")
+
+
+async def process_pending_actions():
+    """Обработать все ожидающие действия из очереди
+
+    Вызывается после завершения работы агента для отправки всех накопленных действий.
+    """
+    from app.bots import send_agent_action_to_telegram
+    from app.db.database import TicketsSessionLocal
+    from app.db.models import Ticket
+    from sqlalchemy import select
+
+    actions_to_process = []
+
+    # Извлекаем все действия из очереди
+    with _action_queue_lock:
+        while _action_queue:
+            actions_to_process.append(_action_queue.popleft())
+
+    if not actions_to_process:
+        return
+
+    print(f"[ACTION] Обработка {len(actions_to_process)} отложенных действий")
+
+    # Обрабатываем каждое действие
+    for action_data in actions_to_process:
+        try:
+            conversation_id = action_data["conversation_id"]
+            action_text = action_data["action_text"]
+
+            # Получаем chat_id из ticket
+            async with TicketsSessionLocal() as session:
+                stmt = select(Ticket).where(Ticket.id == conversation_id)
+                result = await session.execute(stmt)
+                ticket = result.scalar_one_or_none()
+
+                if not ticket:
+                    print(f"[ACTION] Ticket {conversation_id} не найден")
+                    continue
+
+                # telegram_chat_id - это строка, нужно преобразовать в int для Telegram
+                chat_id_str = ticket.telegram_chat_id
+                if not chat_id_str:
+                    print(f"[ACTION] У ticket {conversation_id} нет telegram_chat_id")
+                    continue
+
+                # Проверяем, что это не VK (VK id начинаются с 'vk_')
+                if isinstance(chat_id_str, str) and chat_id_str.startswith("vk_"):
+                    print(f"[ACTION] Пропускаем VK чат {chat_id_str}")
+                    continue
+
+                try:
+                    chat_id = int(chat_id_str)
+                except (ValueError, TypeError):
+                    print(f"[ACTION] Не удалось преобразовать chat_id: {chat_id_str}")
+                    continue
+
+            # Отправляем действие в Telegram
+            await send_agent_action_to_telegram(chat_id, action_text)
+            print(
+                f"[ACTION] ✅ Отправлено действие в Telegram chat {chat_id}: {action_text}"
+            )
+
+        except Exception as e:
+            print(f"[ACTION ERROR] Ошибка при обработке действия: {e}")
+            logger.warning(f"Failed to process agent action: {e}")
 
 
 # Глобальное хранилище для передачи данных между агентом и ботом
@@ -91,6 +187,11 @@ async def search_knowledge_base(query: str, suggest_similar: bool = False) -> st
     """
     print(
         f"[AGENT ACTION] Поиск в базе знаний: '{query}' (suggest_similar={suggest_similar})"
+    )
+
+    # Отправляем действие в Telegram
+    _send_action_to_telegram(
+        f"🔍 Поиск в базе знаний: {query[:50]}{'...' if len(query) > 50 else ''}"
     )
 
     try:
@@ -323,6 +424,8 @@ def _classify_request_internal(
         print(
             f"[AGENT ACTION] Классификация диалога через LLM (длина: {len(dialogue_history)} символов)"
         )
+        # Отправляем действие в Telegram
+        _send_action_to_telegram("🏷️ Классификация запроса")
     elif text:
         analysis_text = text
         print(f"[AGENT ACTION] Классификация запроса через LLM: '{text[:50]}...'")
@@ -462,6 +565,9 @@ def _set_priority_internal(dialogue_history: str) -> str:
     print(
         f"[AGENT ACTION] Определение приоритета диалога через LLM (длина: {len(dialogue_history)} символов)"
     )
+
+    # Отправляем действие в Telegram
+    _send_action_to_telegram("⚡ Определение приоритета заявки")
 
     try:
         from app.rag.service import get_llm_client
@@ -669,6 +775,12 @@ def create_it_ticket(problem_description: str, location: str = "не указа�
     print(f"[IT TICKET] Проблема: {problem_description}")
     print(f"[IT TICKET] Локация: {location}")
 
+    # Отправляем действие в Telegram
+    if location and location != "не указано":
+        _send_action_to_telegram(f"📝 Создание заявки на выезд IT-специалиста")
+    else:
+        _send_action_to_telegram(f"📋 Подготовка черновика заявки IT")
+
     conversation_id = get_current_conversation_id()
     print(f"[IT TICKET] conversation_id: {conversation_id}")
 
@@ -803,6 +915,10 @@ def call_operator() -> str:
     print(
         "[AGENT ACTION] ВЫЗОВ ОПЕРАТОРА! Передача сложного запроса живому специалисту"
     )
+
+    # Отправляем действие в Telegram
+    _send_action_to_telegram("👤 Вызов оператора")
+
     logger.info("Operator call requested")
     return "Запрос передан оператору. Ожидайте ответа в ближайшее время."
 

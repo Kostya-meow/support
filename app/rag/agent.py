@@ -122,6 +122,12 @@ class RAGAgent:
                 # Нет истории - просто отправляем запрос
                 result = await self.agent.arun(query)
 
+            # Обрабатываем отложенные действия агента
+            print("[AGENT] Обрабатываю отложенные действия...")
+            from app.rag.agent_tools import process_pending_actions
+
+            await process_pending_actions()
+
             # Извлекаем текст ответа
             if hasattr(result, "content"):
                 response = result.content.strip()

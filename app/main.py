@@ -85,7 +85,13 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import auth
-from app.bots import create_dispatcher, start_bot, create_vk_bot, start_vk_bot
+from app.bots import (
+    create_dispatcher,
+    start_bot,
+    create_vk_bot,
+    start_vk_bot,
+    set_bot_instance,
+)
 from app.config import load_rag_config, load_app_config
 from app.db import (
     models,
@@ -203,6 +209,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         dispatcher = create_dispatcher(
             TicketsSessionLocal, connection_manager, rag_service, None
         )
+        # Установить bot instance для использования в agent_tools
+        set_bot_instance(bot, TicketsSessionLocal)
         app.state.bot = bot
         app.state.dispatcher = dispatcher
         bot_task = asyncio.create_task(start_bot(bot, dispatcher))

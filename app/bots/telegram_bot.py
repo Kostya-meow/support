@@ -33,6 +33,19 @@ OPERATOR_REQUEST_CALLBACK = "request_operator"
 # Словарь блокировок для каждого пользователя (предотвращение спама)
 user_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
+# Глобальная ссылка на бот для отправки сообщений из agent_tools
+_bot_instance: Bot | None = None
+_session_maker: async_sessionmaker[AsyncSession] | None = None
+
+
+def set_bot_instance(bot: Bot, session_maker: async_sessionmaker[AsyncSession]) -> None:
+    """Установить глобальную ссылку на бот для использования в agent_tools"""
+    global _bot_instance, _session_maker
+    _bot_instance = bot
+    _session_maker = session_maker
+    logger.info("Bot instance set for agent tools")
+
+
 REQUEST_OPERATOR_KEYBOARD = InlineKeyboardMarkup(
     inline_keyboard=[
         [
@@ -59,6 +72,87 @@ def _extract_title(message: Message = None, user_obj=None) -> str:
     if message:
         return f"Пользователь {message.chat.id}"
     return "Неизвестный пользователь"
+
+
+async def send_agent_action_to_telegram(chat_id: int, action_text: str) -> None:
+    """Отправляет действие агента в Telegram и сохраняет в БД
+
+    Используется из agent_tools для отправки сообщений о действиях агента.
+
+    Args:
+        chat_id: ID чата Telegram
+        action_text: Текст действия (например, "🔍 Поиск в базе знаний...")
+    """
+    global _bot_instance, _session_maker
+
+    if not _bot_instance or not _session_maker:
+        logger.warning("Bot instance not set, cannot send agent action")
+        return
+
+    try:
+        # Отправляем сообщение в Telegram (без таймаута чтобы избежать проблем с context manager)
+        try:
+            await _bot_instance.send_message(
+                chat_id=chat_id,
+                text=f"<i>{action_text}</i>",  # Курсивом для отличия от обычных сообщений
+                parse_mode="HTML",
+                request_timeout=5,  # Явный таймаут вместо context manager
+            )
+        except Exception as send_error:
+            logger.warning(f"Failed to send message to Telegram: {send_error}")
+            # Продолжаем сохранять в БД даже если отправка не удалась
+
+        # Сохраняем в БД (автоматически попадёт в веб через broadcast)
+        async with _session_maker() as session:
+            from app.services.realtime import connection_manager
+
+            ticket = await crud.get_open_ticket_by_chat_id(session, chat_id)
+            if ticket:
+                # Проверяем, есть ли активные соединения для этого тикета
+                should_mark_as_read = connection_manager.has_active_chat_connections(
+                    ticket.id
+                )
+
+                # Добавляем сообщение как от бота
+                db_message = await crud.add_message(
+                    session,
+                    ticket_id=ticket.id,
+                    sender=BOT_SENDER,
+                    text=action_text,
+                    is_read=should_mark_as_read,
+                )
+
+                await session.refresh(db_message)
+                await session.refresh(ticket, ["messages"])
+
+                # Broadcast в веб-интерфейс
+                from app.db import MessageRead, TicketRead
+
+                # Отправляем сообщение
+                await connection_manager.broadcast_message(
+                    ticket.id, MessageRead.from_orm(db_message).model_dump(mode="json")
+                )
+
+                # Обновляем список тикетов
+                tickets = await crud.list_tickets(session, archived=False)
+                tickets_payload = []
+                for t in tickets:
+                    ticket_data = TicketRead.from_orm(t).model_dump(mode="json")
+                    unread_count = sum(
+                        1
+                        for msg in t.messages
+                        if msg.sender in ["user", "bot"] and not msg.is_read
+                    )
+                    ticket_data["unread_count"] = min(unread_count, 99)
+                    tickets_payload.append(ticket_data)
+
+                await connection_manager.broadcast_conversations(tickets_payload)
+
+        logger.info(
+            f"Sent agent action to Telegram chat {chat_id}: {action_text[:50]}..."
+        )
+    except Exception as e:
+        logger.error(f"Failed to send agent action to Telegram: {e}")
 
 
 def create_dispatcher(
