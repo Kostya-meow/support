@@ -405,19 +405,41 @@ def create_dispatcher(
             logger.warning(f"Failed to calculate average response time: {e}")
             return "обычно быстро"
 
-    async def _answer_with_rag_only(message: Message, user_text: str) -> None:
-        """Отвечает пользователю через RAG и сохраняет ответ в тикет (если есть)"""
+    async def _answer_with_rag_only(
+        message: Message, user_text: str, ticket_id: int = None
+    ) -> None:
+        """Отвечает пользователю через RAG и сохраняет ответ в тикет (если есть)
+
+        Args:
+            message: Сообщение пользователя
+            user_text: Текст сообщения
+            ticket_id: ID тикета для передачи в RAG (если None - используется chat_id)
+        """
         await message.bot.send_chat_action(message.chat.id, "typing")
 
+        # Если ticket_id не передан, пытаемся получить его
+        conversation_id = ticket_id
+        if conversation_id is None:
+            async with session_maker() as session:
+                ticket = await crud.get_open_ticket_by_chat_id(session, message.chat.id)
+                if ticket:
+                    conversation_id = ticket.id
+                else:
+                    # Fallback на chat_id если тикета нет
+                    conversation_id = message.chat.id
+                    logger.warning(
+                        f"No ticket found for chat {message.chat.id}, using chat_id as conversation_id"
+                    )
+
         try:
-            # Вызываем RAG сервис (async или sync)
+            # Вызываем RAG сервис с правильным conversation_id (ticket.id)
             try:
                 rag_result = await rag_service.generate_reply(
-                    message.chat.id, user_text
+                    conversation_id, user_text
                 )
             except TypeError:
                 rag_result = await asyncio.to_thread(
-                    rag_service.generate_reply, message.chat.id, user_text
+                    rag_service.generate_reply, conversation_id, user_text
                 )
         except Exception as exc:
             logger.error(f"RAG generation failed: {exc}")
@@ -747,8 +769,8 @@ def create_dispatcher(
                     )
                     ticket_id = await _create_ticket_and_add_message(message, user_text)
 
-                    # Отвечаем через RAG
-                    await _answer_with_rag_only(message, user_text)
+                    # Отвечаем через RAG с передачей ticket_id
+                    await _answer_with_rag_only(message, user_text, ticket_id)
                     return
 
                 # ЕСТЬ ЗАЯВКА - проверяем, подключен ли оператор
@@ -759,7 +781,7 @@ def create_dispatcher(
                 else:
                     # Оператор НЕ подключен - сохраняем сообщение И отвечаем через RAG
                     ticket_id, has_ticket = await _persist_message(message, user_text)
-                    await _answer_with_rag_only(message, user_text)
+                    await _answer_with_rag_only(message, user_text, ticket.id)
 
     @router.message(F.caption)
     async def on_caption(message: Message) -> None:

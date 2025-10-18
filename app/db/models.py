@@ -44,6 +44,7 @@ class Ticket(Base):
     )  # Флаг запроса оператора
     status = Column(String(20), default=TicketStatus.OPEN, nullable=False)
     priority = Column(String(10), default="medium", nullable=False)  # low, medium, high
+    it_ticket_number = Column(String(50), nullable=True)  # Номер заявки IT-специалисту
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     first_response_at = Column(
         DateTime, nullable=True

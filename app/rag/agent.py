@@ -31,6 +31,7 @@ class RAGAgent:
             search_knowledge_base,
             classify_request,
             set_priority,
+            create_it_ticket,
             call_operator,
             get_system_status,
         )
@@ -55,6 +56,7 @@ class RAGAgent:
                 search_knowledge_base,
                 classify_request,
                 set_priority,
+                create_it_ticket,
                 call_operator,
                 get_system_status,
             ],
@@ -66,15 +68,28 @@ class RAGAgent:
         )
 
     async def process_query(
-        self, query: str, chat_history: List[Dict[str, Any]] = None
+        self,
+        query: str,
+        chat_history: List[Dict[str, Any]] = None,
+        conversation_id: int = None,
     ) -> str:
         """Обработка запроса через LLM агента с учетом истории
 
         Args:
             query: Текущий запрос пользователя
             chat_history: История диалога (список ChatMessage объектов с полями message, is_user, timestamp)
+            conversation_id: ID текущего диалога для инструментов агента
         """
         print(f"\n[AGENT START] Обрабатываю запрос: '{query}'")
+
+        # Устанавливаем conversation_id в контексте перед выполнением
+        if conversation_id is not None:
+            from app.rag.agent_tools import set_current_conversation_id
+
+            set_current_conversation_id(conversation_id)
+            print(f"[AGENT] Установлен conversation_id: {conversation_id}")
+        else:
+            print(f"[AGENT WARNING] conversation_id не передан в process_query!")
 
         if chat_history:
             print(f"[AGENT] История диалога: {len(chat_history)} сообщений")

@@ -143,6 +143,7 @@ class HybridRAGService:
                 )
 
                 set_current_conversation_id(conversation_id)
+                print(f"HybridRAG DEBUG: Set conversation_id = {conversation_id}")
 
                 # Получаем историю диалога для контекста
                 chat_history = []
@@ -164,9 +165,11 @@ class HybridRAGService:
                     except Exception as e:
                         logger.warning(f"Failed to get chat history: {e}")
 
-                # Передаем запрос с историей агенту
+                # Передаем запрос с историей и conversation_id агенту
                 response_text = await self.agent.process_query(
-                    user_text, chat_history=chat_history
+                    user_text,
+                    chat_history=chat_history,
+                    conversation_id=conversation_id,
                 )
 
                 # Получаем похожие предложения из хранилища (если есть)

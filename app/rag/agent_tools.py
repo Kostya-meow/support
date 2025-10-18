@@ -3,24 +3,29 @@
 """
 
 import logging
-import threading
+import contextvars
 from typing import List, Dict, Any, Optional
 from agno.tools import tool
 
 logger = logging.getLogger(__name__)
 
-# Thread-local хранилище для передачи данных между агентом и ботом
-_thread_local = threading.local()
+# Context variable для передачи conversation_id в async контексте
+_conversation_id_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
+    "conversation_id", default=None
+)
 
 
 def set_current_conversation_id(conversation_id: int):
-    """Установить ID текущего разговора для thread"""
-    _thread_local.conversation_id = conversation_id
+    """Установить ID текущего разговора для async контекста"""
+    _conversation_id_var.set(conversation_id)
+    print(f"[CONTEXT] set_current_conversation_id: {conversation_id}")
 
 
 def get_current_conversation_id() -> Optional[int]:
     """Получить ID текущего разговора"""
-    return getattr(_thread_local, "conversation_id", None)
+    conv_id = _conversation_id_var.get()
+    print(f"[CONTEXT] get_current_conversation_id: {conv_id}")
+    return conv_id
 
 
 # Глобальное хранилище для передачи данных между агентом и ботом
@@ -626,6 +631,170 @@ def set_priority(dialogue_history: str = None) -> str:
     }
 
     return f"Приоритет заявки установлен: {priority_labels.get(priority, priority)}"
+
+
+@tool
+def create_it_ticket(problem_description: str, location: str = "не указано") -> str:
+    """Создание заявки на выезд IT-специалиста для устранения технических проблем на месте.
+
+    ВАЖНО: Используй ДВУХЭТАПНЫЙ процесс:
+    1. ПЕРВЫЙ РАЗ вызывай БЕЗ location (или с "не указано") - это создаст ЧЕРНОВИК заявки
+       Агент должен спросить у пользователя точную локацию (кабинет/офис/этаж)
+    2. ВТОРОЙ РАЗ вызывай с КОНКРЕТНОЙ локацией - это ЗАВЕРШИТ заявку с временем и специалистом
+
+    Используй этот инструмент когда:
+    - Проблема требует физического присутствия специалиста (сломано оборудование, нужна установка/настройка)
+    - Необходима диагностика оборудования на месте
+    - Проблемы с принтерами, компьютерами, сетевым оборудованием требующие физического вмешательства
+    - Пользователь явно просит "приехать", "подойти", "посмотреть на месте"
+
+    НЕ используй для:
+    - Программных проблем, которые можно решить удаленно
+    - Консультаций и вопросов
+    - Проблем с доступами и паролями
+
+    Параметры:
+    - problem_description: описание проблемы для специалиста
+    - location: местоположение (кабинет, офис, этаж). Если "не указано" - это черновик.
+
+    Возвращает:
+    - Черновик: просит уточнить локацию
+    - Готовая заявка: номер, специалист, время прибытия
+    """
+    import random
+    import datetime
+    import asyncio
+
+    print(f"[AGENT ACTION] Создание/обновление заявки на выезд IT-специалиста")
+    print(f"[IT TICKET] Проблема: {problem_description}")
+    print(f"[IT TICKET] Локация: {location}")
+
+    conversation_id = get_current_conversation_id()
+    print(f"[IT TICKET] conversation_id: {conversation_id}")
+
+    if not conversation_id:
+        logger.warning("create_it_ticket вызван без conversation_id")
+        return "⚠️ Ошибка: не удалось определить текущий диалог"
+
+    # Результат, который вернём
+    result_holder = {"result": None}
+
+    async def process_it_ticket():
+        """Асинхронная обработка IT-заявки"""
+        from app.db.database import TicketsSessionLocal
+        from app.db.models import Ticket
+
+        async with TicketsSessionLocal() as session:
+            try:
+                # Получаем тикет из БД
+                from sqlalchemy import select
+
+                stmt = select(Ticket).where(Ticket.id == conversation_id)
+                result = await session.execute(stmt)
+                ticket = result.scalar_one_or_none()
+
+                if not ticket:
+                    logger.warning(f"Ticket {conversation_id} не найден")
+                    result_holder["result"] = "⚠️ Ошибка: заявка не найдена"
+                    return
+
+                # Проверяем, есть ли уже созданная IT-заявка
+                if ticket.it_ticket_number:
+                    print(
+                        f"[IT TICKET] Заявка уже существует: {ticket.it_ticket_number}"
+                    )
+                    result_holder["result"] = (
+                        f"ℹ️ Заявка на выезд специалиста уже создана ранее:\n"
+                        f"📋 Номер: {ticket.it_ticket_number}\n\n"
+                        f"Если нужна дополнительная помощь, обратитесь к оператору."
+                    )
+                    return
+
+                # Если локация не указана - создаем ЧЕРНОВИК
+                if location == "не указано" or not location or location.strip() == "":
+                    print("[IT TICKET] Создание черновика - запрос локации")
+                    result_holder["result"] = (
+                        "✅ Заявка на выезд специалиста будет создана!\n\n"
+                        "📍 Пожалуйста, уточните местоположение:\n"
+                        "- Адрес и номер кабинета/офиса\n"
+                        "- Этаж\n"
+                        "- Корпус (если применимо)\n\n"
+                        "Это поможет специалисту быстрее найти вас."
+                    )
+                    return
+
+                # Локация указана - создаем ПОЛНУЮ заявку
+                print("[IT TICKET] Создание полной заявки с локацией")
+
+                # Генерируем номер заявки
+                ticket_number = f"IT-{random.randint(1000, 9999)}"
+
+                # Рассчитываем время прибытия (через 30-60 минут)
+                arrival_minutes = random.randint(30, 60)
+                arrival_time = datetime.datetime.now() + datetime.timedelta(
+                    minutes=arrival_minutes
+                )
+                arrival_str = arrival_time.strftime("%H:%M")
+
+                # Назначаем специалиста
+                specialists = [
+                    "Иван Петров",
+                    "Мария Сидорова",
+                    "Алексей Козлов",
+                    "Елена Волкова",
+                ]
+                assigned_specialist = random.choice(specialists)
+
+                # Сохраняем номер заявки в БД
+                ticket.it_ticket_number = ticket_number
+                await session.commit()
+
+                logger.info(
+                    f"IT ticket created: {ticket_number}, specialist: {assigned_specialist}, "
+                    f"arrival in {arrival_minutes} min, location: {location}"
+                )
+
+                result_holder["result"] = (
+                    f"✅ Заявка создана!\n\n"
+                    f"📋 Номер заявки: {ticket_number}\n"
+                    f"👤 Назначен специалист: {assigned_specialist}\n"
+                    f"⏰ Ожидаемое время прибытия: {arrival_str} (примерно через {arrival_minutes} минут)\n"
+                    f"📍 Местоположение: {location}\n\n"
+                    f"Специалист свяжется с вами перед приездом. "
+                    f"Пожалуйста, будьте на месте и подготовьте оборудование для диагностики."
+                )
+
+                print(f"[IT TICKET] Заявка сохранена: {ticket_number}")
+
+            except Exception as e:
+                logger.error(f"Ошибка при создании IT-заявки: {e}")
+                result_holder["result"] = f"⚠️ Ошибка при создании заявки: {str(e)}"
+
+    # Запускаем асинхронную функцию
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+            # Loop уже работает - создаем задачу и ждём результата
+            print(f"[IT TICKET] Found running loop, creating task")
+            task = asyncio.create_task(process_it_ticket())
+            # Не можем использовать await в синхронной функции
+            # Используем run_coroutine_threadsafe если есть loop
+            import concurrent.futures
+
+            future = asyncio.run_coroutine_threadsafe(process_it_ticket(), loop)
+            future.result(timeout=5)  # Ждём до 5 секунд
+            print(f"[IT TICKET] Task completed via run_coroutine_threadsafe")
+        except RuntimeError:
+            # Нет работающего loop - создаем новый
+            print(f"[IT TICKET] No running loop, creating new one with asyncio.run()")
+            asyncio.run(process_it_ticket())
+            print(f"[IT TICKET] asyncio.run() completed")
+    except Exception as loop_error:
+        print(f"[IT TICKET ERROR] Loop error: {loop_error}")
+        logger.exception(f"Event loop error: {loop_error}")
+        return f"⚠️ Ошибка: {str(loop_error)}"
+
+    return result_holder.get("result") or "⚠️ Неизвестная ошибка"
 
 
 @tool
