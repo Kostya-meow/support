@@ -91,11 +91,13 @@ class RAGAgent:
                 for msg in chat_history:
                     role = "Пользователь" if msg.is_user else "Ассистент"
                     context_parts.append(f"{role}: {msg.message}")
-                
+
                 # Объединяем историю и добавляем текущий запрос
                 full_context = "\n".join(context_parts) + f"\nПользователь: {query}"
 
-                print(f"[AGENT] Передаю контекст с {len(chat_history)} предыдущими сообщениями")
+                print(
+                    f"[AGENT] Передаю контекст с {len(chat_history)} предыдущими сообщениями"
+                )
 
                 # Отправляем весь контекст агенту
                 result = await self.agent.arun(full_context)
