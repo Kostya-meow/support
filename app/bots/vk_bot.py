@@ -314,6 +314,27 @@ def create_vk_bot(
                 logger.info(
                     f"Generated and saved summary for VK ticket {ticket.id}: {summary[:50]}..."
                 )
+                
+                # Автоматическая классификация при передаче оператору
+                try:
+                    # Формируем историю диалога для классификации
+                    dialogue_text = ""
+                    for msg in messages[-10:]:  # Берем последние 10 сообщений
+                        sender_name = "Пользователь" if msg.sender == "user" else "Бот"
+                        dialogue_text += f"{sender_name}: {msg.text}\n"
+                    
+                    if dialogue_text.strip():
+                        # Используем встроенную функцию классификации из agent_tools
+                        from app.rag.agent_tools import classify_request
+                        classification_result = classify_request(dialogue_history=dialogue_text)
+                        
+                        # Извлекаем категории из результата (формат: "Классификация проблемы: Категория1, Категория2")
+                        if "Классификация проблемы:" in classification_result:
+                            categories = classification_result.split("Классификация проблемы:")[1].strip()
+                            await crud.update_ticket_classification(session, ticket.id, categories)
+                            logger.info(f"Generated classification for VK ticket {ticket.id}: {categories}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate classification for VK ticket: {e}")
             except Exception as e:
                 logger.warning(
                     f"Failed to generate summary for VK ticket {ticket.id}: {e}"

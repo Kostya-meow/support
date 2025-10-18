@@ -25,6 +25,25 @@ from app.db import KnowledgeSessionLocal
 logger = logging.getLogger(__name__)
 
 
+def get_llm_client():
+    """Создает и возвращает клиент для LLM"""
+    import yaml
+    
+    # Загружаем конфигурацию
+    with open("configs/rag_config.yaml", "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    
+    llm_cfg = config.get("llm", {})
+    base_url = llm_cfg.get("base_url") or os.getenv("LLM_API_BASE") or os.getenv("OPENAI_BASE_URL")
+    api_key = llm_cfg.get("api_key") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+    
+    client_kwargs = {"api_key": api_key or "EMPTY"}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+    
+    return OpenAI(**client_kwargs)
+
+
 def _strip_thinking_tags(text: str) -> str:
     return re.sub(r"<think>[\s\S]*?</think>", "", text).strip()
 

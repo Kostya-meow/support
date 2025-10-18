@@ -678,6 +678,36 @@
     font-size: 14px;
   }
 
+  .classification-container {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .classification-header {
+    font-size: 12px;
+    font-weight: 600;
+    color: #6b7280;
+    margin-bottom: 6px;
+  }
+
+  .classification-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .classification-tag {
+    display: inline-block;
+    background: #f3f4f6;
+    color: #374151;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 8px;
+    border-radius: 12px;
+    border: 1px solid #e5e7eb;
+  }
+
   .conversation-list {
     display:grid;
     gap: 0;

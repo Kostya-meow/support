@@ -783,15 +783,31 @@
                 }
                 
                 const data = await response.json();
-                displaySummary(data.summary);
+                displaySummary(data.summary, data.classification);
             } catch (error) {
                 console.error('Error loading summary:', error);
                 summaryContent.innerHTML = '<div class="summary-error">Ошибка загрузки саммари</div>';
             }
         }
 
-        function displaySummary(summary) {
-            summaryContent.innerHTML = `<div class="summary-text">${summary}</div>`;
+        function displaySummary(summary, classification) {
+            let html = `<div class="summary-text">${summary}</div>`;
+            
+            if (classification) {
+                html += `<div class="classification-container">
+                    <div class="classification-header">🏷️ Классификация проблемы:</div>
+                    <div class="classification-tags">`;
+                
+                // Разбиваем классификацию на отдельные теги
+                const categories = classification.split(',').map(cat => cat.trim());
+                categories.forEach(category => {
+                    html += `<span class="classification-tag">${category}</span>`;
+                });
+                
+                html += `</div></div>`;
+            }
+            
+            summaryContent.innerHTML = html;
         }
         
         // Инициализация роутинга при загрузке страницы

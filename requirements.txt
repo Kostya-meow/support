@@ -27,6 +27,8 @@ vk_api
 # Простые парсеры документов
 python-docx
 docx2txt
-pillow
-easyocr
-pdf2image
+PyPDF2
+# Agent dependencies  
+agno
+colorama
+requests

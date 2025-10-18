@@ -48,14 +48,14 @@ from app.db import (
     MessageRead,
     ConversationRead,
 )
-from app.rag import RAGService, KnowledgeBase
+from app.rag.hybrid_service import get_hybrid_rag_service, HybridRAGService
 from app.services import ConnectionManager, SimulatorService
 from app.auth import require_permission, require_admin, get_user_permissions
 
 logger = logging.getLogger(__name__)
 
 connection_manager = ConnectionManager()
-knowledge_base: KnowledgeBase | None = None
+
 
 templates = Jinja2Templates(directory="app/templates")
 
@@ -275,16 +275,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     rag_config = load_rag_config()
     embeddings_cfg = rag_config.get("embeddings", {})
 
-    global knowledge_base
-    knowledge_base = KnowledgeBase(
-        KnowledgeSessionLocal,
-        model_name=embeddings_cfg.get("model_name"),
-    )
-    await knowledge_base.ensure_loaded()
-    app.state.knowledge_base = knowledge_base
-
-    # Используем полный конфиг для RAGService (с настройками speech)
-    rag_service = RAGService(full_config)
+    # Используем гибридный RAG сервис с агентом
+    rag_service = get_hybrid_rag_service()
     await rag_service.prepare()
     app.state.rag = rag_service
 
@@ -300,9 +292,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if token:
         bot = Bot(token=token)
-        # Pass knowledge_base to dispatcher so Telegram bot can query top-k KB entries
+        # Pass rag_service to dispatcher for Telegram bot 
         dispatcher = create_dispatcher(
-            TicketsSessionLocal, connection_manager, rag_service, knowledge_base
+            TicketsSessionLocal, connection_manager, rag_service, None
         )
         app.state.bot = bot
         app.state.dispatcher = dispatcher
@@ -636,7 +628,7 @@ async def get_dashboard_stats(
 async def upload_knowledge(
     request: Request,
     file: UploadFile = File(...),
-    clear_database: bool = Form(True),
+    clear_database: bool = Form(False),
     session: AsyncSession = Depends(get_knowledge_session),
     _: None = Depends(auth.ensure_api_auth),
 ) -> JSONResponse:
@@ -739,10 +731,15 @@ async def upload_knowledge(
         chunk_text = f"Вопрос: {question}\nОтвет: {answer}"
         
         # Генерируем embedding для чанка
-        embedding_vector = rag_service.embedder.encode(
-            [chunk_text], convert_to_numpy=True, normalize_embeddings=True
-        )[0].astype("float32")
-        embedding_bytes = embedding_vector.tobytes()
+        embedding_list = rag_service.create_embedding(chunk_text)
+        if embedding_list:
+            import numpy as np
+            embedding_vector = np.array(embedding_list, dtype=np.float32)
+            embedding_bytes = embedding_vector.tobytes()
+        else:
+            # Если не удалось создать embedding, пропускаем этот чанк
+            logger.warning(f"Failed to create embedding for chunk {idx}")
+            continue
         
         chunks_data.append((
             chunk_text,          # content
@@ -776,7 +773,7 @@ async def knowledge_stats(
 @app.post("/api/knowledge/upload-files")
 async def upload_knowledge_files(
     files: list[UploadFile] = File(...),
-    clear_database: bool = True,  # Добавляем параметр для очистки БД
+    clear_database: bool = False,  # Добавляем параметр для очистки БД
     request: Request = None,
     session: AsyncSession = Depends(get_knowledge_session),
     _: None = Depends(auth.ensure_api_auth),
@@ -811,9 +808,8 @@ async def upload_knowledge_files(
     processed_files = []
     errors = []
     
-    # Получаем embedder из RAG сервиса
-    rag_service: RAGService = request.app.state.rag
-    embedder = rag_service.embedder
+    # Получаем RAG сервис  
+    rag_service: HybridRAGService = request.app.state.rag
     
     for file in files:
         try:
@@ -858,17 +854,23 @@ async def upload_knowledge_files(
                 chunks_data = []
                 for chunk in chunks:
                     # Генерируем embedding
-                    embedding_vector = embedder.encode(chunk.content)
-                    embedding_bytes = embedding_vector.tobytes()
-                    
-                    chunks_data.append((
-                        chunk.content,
-                        chunk.source_file,
-                        chunk.chunk_index,
-                        chunk.start_char,
-                        chunk.end_char,
-                        embedding_bytes,
-                    ))
+                    embedding_list = rag_service.create_embedding(chunk.content)
+                    if embedding_list:
+                        import numpy as np
+                        embedding_vector = np.array(embedding_list, dtype=np.float32)
+                        embedding_bytes = embedding_vector.tobytes()
+                        
+                        chunks_data.append((
+                            chunk.content,
+                            chunk.source_file,
+                            chunk.chunk_index,
+                            chunk.start_char,
+                            chunk.end_char,
+                            embedding_bytes,
+                        ))
+                    else:
+                        logger.warning(f"Failed to create embedding for chunk from {chunk.source_file}")
+                        continue
                 
                 # Сохраняем в БД
                 await knowledge_crud.add_document_chunks(session, chunks_data)
@@ -892,11 +894,7 @@ async def upload_knowledge_files(
             errors.append(f"{file.filename}: {str(e)}")
             continue
     
-    # Перезагружаем RAG service с новыми данными
-    try:
-        await rag_service.reload()
-    except Exception as e:
-        logger.warning(f"Failed to reload RAG service: {e}")
+    # Обработка завершена - простой сервис не требует перезагрузки
     
     return JSONResponse({
         "success": True,
@@ -1004,8 +1002,8 @@ async def api_finish(
     )
 
     # Отмечаем закрытие заявки в RAG сервисе для правильной сегментации истории
-    rag_service: RAGService = request.app.state.rag
-    rag_service.mark_ticket_closed(ticket.telegram_chat_id)
+    rag_service: HybridRAGService = request.app.state.rag
+    # Закрытие тикета - просто обновляем статус
 
     manager: ConnectionManager = request.app.state.connection_manager
     await manager.broadcast_message(conversation_id, _serialize_message(finish_message))
@@ -1132,16 +1130,20 @@ async def get_ticket_summary(
     if ticket.summary:
         summary = ticket.summary
     else:
-        # Генерируем summary из сообщений
-        rag_service: RAGService = request.app.state.rag
-        summary = await rag_service.generate_ticket_summary(
-            messages, ticket_id=conversation_id
-        )
+        # Простое создание summary из сообщений
+        if messages:
+            summary = f"Тикет создан: {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+            summary += f"Всего сообщений: {len(messages)}\n"
+            if messages:
+                summary += f"Первое сообщение: {messages[0].text[:100]}..."
+        else:
+            summary = "Нет сообщений"
         await crud.update_ticket_summary(session, conversation_id, summary)
 
     return {
         "ticket_id": conversation_id,
         "summary": summary,
+        "classification": ticket.classification,
         "status": ticket.status,
         "created_at": ticket.created_at.isoformat(),
         "message_count": len(messages),
@@ -1579,3 +1581,26 @@ async def update_setting(request: Request, data: dict = Body(...)):
         raise HTTPException(status_code=404, detail="Настройка не найдена")
 
     return {"success": True}
+
+
+@app.post("/api/agent/chat")
+async def agent_chat(request: Request, data: dict = Body(...)):
+    """Обработка запроса через RAG агента"""
+    query = data.get("query", "").strip()
+    
+    if not query:
+        raise HTTPException(status_code=400, detail="Query is required")
+    
+    try:
+        rag_service: HybridRAGService = request.app.state.rag
+        response = await rag_service.process_query(query)
+        
+        return {
+            "success": True,
+            "response": response,
+            "query": query
+        }
+        
+    except Exception as e:
+        logger.error(f"Agent chat error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка обработки запроса")

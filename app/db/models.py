@@ -24,6 +24,7 @@ class Ticket(Base):
     telegram_chat_id = Column(String(255), index=True, nullable=False)  # Изменено на String для поддержки VK
     title = Column(String(255), nullable=True)
     summary = Column(Text, nullable=True)  # Краткое описание заявки (авто-генерируется)
+    classification = Column(Text, nullable=True)  # Классификация проблемы от AI агента
     status = Column(String(20), default=TicketStatus.OPEN, nullable=False)
     priority = Column(String(10), default="medium", nullable=False)  # low, medium, high
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

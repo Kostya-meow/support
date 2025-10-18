@@ -396,13 +396,20 @@ def create_dispatcher(
                 await message.bot.send_chat_action(message.chat.id, "typing")
             except Exception:
                 pass
-            # Используем chat_id как temporary conversation_id для RAG
+            # Сохраняем conversation_id для совместимости
             conversation_id = message.chat.id
-            rag_result: RAGResult = await asyncio.to_thread(
-                rag_service.generate_reply,
-                conversation_id,
-                user_text,
-            )
+            
+            # Используем новый агентный метод
+            response_text = await rag_service.process_query(user_text)
+            
+            # Создаем простой результат для совместимости
+            class RAGResult:
+                def __init__(self, final_answer, operator_requested):
+                    self.final_answer = final_answer
+                    self.operator_requested = operator_requested
+                    self.confidence_score = 0.3  # Низкий score = высокая уверенность
+            
+            rag_result = RAGResult(response_text, 'оператор' in response_text.lower())
         except Exception as exc:
             logger.exception("RAG generation failed: %s", exc)
             fallback = "Не смогла обработать запрос. Попробуйте ещё раз или позовите оператора."
@@ -500,13 +507,8 @@ def create_dispatcher(
                             reply_markup=topic_kb,
                         )
                 else:
-                    # Fallback to previous suggest_topics if knowledge_base not provided
-                    topics = await asyncio.to_thread(
-                        rag_service.suggest_topics,
-                        conversation_id,
-                        user_text,
-                        answer_text,
-                    )
+                    # Простая заглушка вместо suggest_topics
+                    topics = []  # Не предлагаем дополнительные темы
                     if topics:
                         buttons = []
                         for t in topics:
@@ -552,10 +554,18 @@ def create_dispatcher(
                 except Exception:
                     pass
             try:
-                # Generate reply synchronously in thread
-                rag_result: RAGResult = await asyncio.to_thread(
-                    rag_service.generate_reply, chat_id, topic
-                )
+                # Generate reply using new agent method
+                response_text = await rag_service.process_query(topic)
+                
+                # Create simple result for compatibility  
+                class RAGResult:
+                    def __init__(self, final_answer, operator_requested):
+                        self.final_answer = final_answer
+                        self.operator_requested = operator_requested
+                        self.confidence_score = 0.3  # Низкий score = высокая уверенность
+                
+                rag_result = RAGResult(response_text, False)
+                
                 # Send back to chat (LLM-generated)
                 text = rag_result.final_answer or "Нет ответа."
                 if query.message:
@@ -953,6 +963,27 @@ def create_dispatcher(
                     )
                     await crud.update_ticket_summary(session, ticket.id, summary)
                     logger.info(f"Generated summary for ticket {ticket.id}")
+                    
+                    # Автоматическая классификация при передаче оператору
+                    try:
+                        # Формируем историю диалога для классификации
+                        dialogue_text = ""
+                        for msg in messages[-10:]:  # Берем последние 10 сообщений
+                            sender_name = "Пользователь" if msg.sender == "user" else "Бот"
+                            dialogue_text += f"{sender_name}: {msg.text}\n"
+                        
+                        if dialogue_text.strip():
+                            # Используем встроенную функцию классификации из agent_tools
+                            from app.rag.agent_tools import classify_request
+                            classification_result = classify_request(dialogue_history=dialogue_text)
+                            
+                            # Извлекаем категории из результата (формат: "Классификация проблемы: Категория1, Категория2")
+                            if "Классификация проблемы:" in classification_result:
+                                categories = classification_result.split("Классификация проблемы:")[1].strip()
+                                await crud.update_ticket_classification(session, ticket.id, categories)
+                                logger.info(f"Generated classification for ticket {ticket.id}: {categories}")
+                    except Exception as e:
+                        logger.warning(f"Failed to generate classification: {e}")
             except Exception as e:
                 logger.warning(f"Failed to generate summary: {e}")
 

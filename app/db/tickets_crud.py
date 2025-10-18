@@ -165,6 +165,24 @@ async def update_ticket_summary(
     return ticket
 
 
+async def update_ticket_classification(
+    session: AsyncSession,
+    ticket_id: int,
+    classification: str,
+) -> Optional[models.Ticket]:
+    """Обновить классификацию заявки."""
+    ticket = await session.get(models.Ticket, ticket_id)
+    if ticket is None:
+        return None
+
+    ticket.classification = classification
+    ticket.updated_at = datetime.utcnow()
+
+    await session.commit()
+    await session.refresh(ticket)
+    return ticket
+
+
 async def set_first_response_time(
     session: AsyncSession,
     ticket_id: int,
