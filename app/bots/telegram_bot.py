@@ -14,11 +14,8 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
-import uuid
 import html
 
-# In-memory mapping for short callback tokens -> full topic text
-callback_map: dict[str, str] = {}
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import tickets_crud as crud, models
@@ -106,22 +103,14 @@ def create_dispatcher(
         """Сохраняет сообщение в существующую заявку (если есть)"""
         chat_id = message.chat.id
         async with session_maker() as session:
-            # Ищем ОТКРЫТУЮ заявку для данного чата
             ticket = await crud.get_open_ticket_by_chat_id(session, chat_id)
             if ticket is None:
-                # Нет открытой заявки - это обычное общение с ботом
                 return None, False
 
-            # Проверяем, есть ли активные подключения к этому чату
-            # Если есть - сразу помечаем сообщение как прочитанное
             should_mark_as_read = connection_manager.has_active_chat_connections(
                 ticket.id
             )
-            logger.info(
-                f"📨 Message from {sender} to ticket #{ticket.id}: has_active={should_mark_as_read}"
-            )
 
-            # Есть открытая заявка - добавляем сообщение
             db_message = await crud.add_message(
                 session,
                 ticket_id=ticket.id,
@@ -130,15 +119,10 @@ def create_dispatcher(
                 telegram_message_id=(
                     message.message_id if sender == USER_SENDER else None
                 ),
-                is_read=should_mark_as_read,  # Сразу помечаем как прочитанное, если чат открыт
-            )
-            logger.info(
-                f"✅ Message #{db_message.id} created with is_read={db_message.is_read}"
+                is_read=should_mark_as_read,
             )
 
-            # add_message уже делает commit, просто загружаем актуальные данные
-            await session.refresh(db_message)  # Обновляем объект
-            # Загружаем заявку с сообщениями для правильного подсчета unread
+            await session.refresh(db_message)
             await session.refresh(ticket, ["messages"])
             tickets_payload = await _serialize_tickets(session)
 
@@ -242,85 +226,42 @@ def create_dispatcher(
                 ticket.id
             )
 
-            # Пытаемся получить и добавить историю чата из RAG сервиса
+            # Получаем и добавляем историю чата из RAG сервиса
             try:
-                print(
-                    f"BOT DEBUG: Creating ticket for user {chat_id}, current message: {text}"
-                )
-
-                # Получаем историю с момента последней заявки или с начала
                 chat_history = rag_service.get_chat_history_since_last_ticket(chat_id)
-                print(
-                    f"BOT DEBUG: Retrieved segmented chat history for user {chat_id}: {len(chat_history)} messages"
-                )
                 logger.info(
-                    f"Retrieved segmented chat history for user {chat_id}: {len(chat_history)} messages"
+                    f"Retrieved chat history for user {chat_id}: {len(chat_history)} messages"
                 )
 
-                # Логируем содержимое истории для отладки
-                for i, msg in enumerate(chat_history):
-                    sender_type = "USER" if msg.is_user else "BOT"
-                    print(
-                        f"BOT DEBUG: History message {i+1}: [{sender_type}] {msg.message[:50]}..."
-                    )
-                    logger.debug(
-                        f"History message {i+1}: [{sender_type}] {msg.message[:50]}..."
+                # Добавляем все сообщения из истории чата
+                for chat_msg in chat_history:
+                    sender = USER_SENDER if chat_msg.is_user else BOT_SENDER
+                    await crud.add_message(
+                        session,
+                        ticket_id=ticket.id,
+                        sender=sender,
+                        text=chat_msg.message,
+                        is_system=False,
+                        is_read=should_mark_as_read,
                     )
 
-                # Добавляем все сообщения из релевантной истории чата
-                for i, chat_msg in enumerate(chat_history):
-                    try:
-                        sender = USER_SENDER if chat_msg.is_user else BOT_SENDER
-                        # Для новых сообщений не передавать created_at, чтобы использовалось текущее время
-                        await crud.add_message(
-                            session,
-                            ticket_id=ticket.id,
-                            sender=sender,
-                            text=chat_msg.message,
-                            is_system=False,
-                            is_read=should_mark_as_read,
-                        )
-                        print(
-                            f"BOT DEBUG: Added history message {i+1}/{len(chat_history)}: {sender} - {chat_msg.message[:30]}..."
-                        )
-                        logger.debug(
-                            f"Added history message {i+1}/{len(chat_history)}: {sender}"
-                        )
-                    except Exception as e:
-                        print(f"BOT DEBUG: Failed to add history message {i+1}: {e}")
-                        logger.warning(f"Failed to add history message {i+1}: {e}")
-
-                # Отмечаем создание заявки
                 rag_service.mark_ticket_created(chat_id)
 
-                # НЕ очищаем историю чата - оставляем для будущих заявок
-                logger.info(f"Marked ticket creation for user {chat_id}")
-
                 # Сохраняем summary в БД
-                try:
-                    await crud.update_ticket_summary(session, ticket.id, summary)
-                    logger.info(
-                        f"Saved summary for ticket {ticket.id}: {summary[:50]}..."
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to save summary for ticket {ticket.id}: {e}"
-                    )
+                await crud.update_ticket_summary(session, ticket.id, summary)
 
-                # Проверяем, есть ли уже текущее сообщение в истории
+                # Проверяем, есть ли текущее сообщение в истории
                 last_user_messages = [
                     msg.message for msg in chat_history if msg.is_user
                 ]
                 if text in last_user_messages:
-                    # Текущее сообщение уже есть в истории, не дублируем
-                    # Берем последнее добавленное сообщение как db_message для ответа
+                    # Текущее сообщение уже в истории, берём последнее добавленное
                     messages = await crud.list_messages_for_ticket(session, ticket.id)
                     db_message = messages[-1] if messages else None
                     if not db_message:
-                        # Если по какой-то причине сообщений нет, добавляем текущее
                         raise Exception("No messages found after adding history")
                 else:
-                    # Добавляем текущее сообщение, если его нет в истории
+                    # Добавляем текущее сообщение
                     db_message = await crud.add_message(
                         session,
                         ticket_id=ticket.id,
@@ -331,7 +272,6 @@ def create_dispatcher(
                     )
 
             except Exception as e:
-                # Если что-то пошло не так с историей, просто добавляем текущее сообщение
                 logger.warning(
                     f"Failed to process chat history for user {chat_id}: {e}"
                 )
@@ -343,9 +283,6 @@ def create_dispatcher(
                     telegram_message_id=message.message_id,
                     is_read=should_mark_as_read,
                 )
-
-            # Больше НЕ генерируем summary после добавления сообщений
-            # Summary уже был сгенерирован из истории чата выше
 
         await _broadcast_message(ticket.id, MessageRead.from_orm(db_message))
         await _broadcast_tickets()
@@ -403,86 +340,43 @@ def create_dispatcher(
 
     async def _answer_with_rag_only(message: Message, user_text: str) -> None:
         """Отвечает пользователю через RAG без создания заявки"""
+        await message.bot.send_chat_action(message.chat.id, "typing")
+
         try:
-            # Отправляем typing action
+            # Вызываем RAG сервис (async или sync)
             try:
-                await message.bot.send_chat_action(message.chat.id, "typing")
-            except Exception:
-                pass
-
-            # Используем conversation_id как chat_id
-            conversation_id = message.chat.id
-
-            # Используем generate_reply который СОХРАНЯЕТ историю
-            # Если это HybridRAGService - метод асинхронный, просто await
-            # Если это RAGService - метод синхронный, используем to_thread
-            try:
-                # Пробуем вызвать как async
                 rag_result = await rag_service.generate_reply(
-                    conversation_id, user_text
+                    message.chat.id, user_text
                 )
             except TypeError:
-                # Если метод синхронный, вызываем через to_thread
                 rag_result = await asyncio.to_thread(
-                    rag_service.generate_reply, conversation_id, user_text
+                    rag_service.generate_reply, message.chat.id, user_text
                 )
-
-            print(
-                f"BOT DEBUG: RAG result - operator_requested: {rag_result.operator_requested}, confidence: {rag_result.confidence_score}"
-            )
         except Exception as exc:
-            logger.exception("RAG generation failed: %s", exc)
-            fallback = "Не смогла обработать запрос. Попробуйте ещё раз или позовите оператора."
-            await message.answer(fallback, reply_markup=REQUEST_OPERATOR_KEYBOARD)
-            return
-
-        if rag_result.operator_requested:
-            # RAG решил, что нужен оператор - показываем предложение
-            avg_response_time = await _get_average_response_time()
-
-            # RAG уже вернул текст типа "Могу подключить оператора", не дублируем!
-            combined_text = (
-                f"{rag_result.final_answer}\n\n"
-                f"⏱ Среднее время ответа: <b>{avg_response_time}</b>\n\n"
-                f"Подключить?"
-            )
-
-            # Создаем клавиатуру с кнопкой подтверждения
-            confirm_keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="✅ Да, подключить оператора",
-                            callback_data=OPERATOR_REQUEST_CALLBACK,
-                        )
-                    ]
-                ]
-            )
-
+            logger.error(f"RAG generation failed: {exc}")
             await message.answer(
-                combined_text, reply_markup=confirm_keyboard, parse_mode="HTML"
+                "Не смогла обработать запрос. Попробуйте ещё раз или позовите оператора.",
+                reply_markup=REQUEST_OPERATOR_KEYBOARD,
             )
             return
 
-        # Обычный ответ от бота
         answer_text = (
             rag_result.final_answer
             or "Я пока не нашла ответ. Попробуйте уточнить вопрос."
         )
-        formatted_answer = f"{answer_text}"
 
-        # Показываем кнопку оператора ТОЛЬКО если уверенность низкая (confidence_score > 0.6)
-        # confidence_score - это evaluation score, чем выше, тем хуже качество ответа
-        if rag_result.confidence_score > 0.6:
-            # Низкая уверенность - предлагаем оператора с тем же единым форматом
+        # Проверяем нужен ли оператор (явный запрос или низкая уверенность)
+        needs_operator = (
+            rag_result.operator_requested or rag_result.confidence_score > 0.6
+        )
+
+        if needs_operator:
             avg_response_time = await _get_average_response_time()
-
             combined_text = (
-                f"Могу подключить оператора.\n"
+                f"{answer_text}\n\n"
                 f"⏱ Среднее время ответа: <b>{avg_response_time}</b>\n\n"
-                f"Подключить?"
+                f"Подключить оператора?"
             )
-
             confirm_keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
@@ -493,240 +387,81 @@ def create_dispatcher(
                     ]
                 ]
             )
-
             await message.answer(
                 combined_text, reply_markup=confirm_keyboard, parse_mode="HTML"
             )
         else:
-            # Уверенный ответ - показываем ответ и (опционально) темы-быстрые кнопки
-            try:
-                await message.answer(formatted_answer, parse_mode="HTML")
-            except Exception:
-                logger.exception(
-                    "Failed to send confident answer to chat %s", message.chat.id
-                )
+            # Уверенный ответ - показываем ответ и кнопки KB (если доступны)
+            await message.answer(answer_text, parse_mode="HTML")
 
-            # Suggest top-k KB questions (use knowledge_base if available)
-            try:
-                if knowledge_base is not None:
+            # Показываем быстрые кнопки из knowledge_base
+            if knowledge_base is not None:
+                try:
                     top = await knowledge_base.search_top_k(user_text, top_k=3)
                     if top:
-                        # collect candidate strings for label generation
                         candidates = [(entry.get("question") or "") for entry in top]
                         labels = _make_concise_labels(candidates, max_len=30)
                         buttons = []
                         for entry, label in zip(top, labels):
                             eid = entry.get("id")
-                            cb = f"kb::{eid}"
                             buttons.append(
-                                [InlineKeyboardButton(text=label, callback_data=cb)]
+                                [
+                                    InlineKeyboardButton(
+                                        text=label, callback_data=f"kb::{eid}"
+                                    )
+                                ]
                             )
                         topic_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
                         await message.answer(
                             "Возможно, пригодится один из этих быстрых ответов:",
                             reply_markup=topic_kb,
                         )
-                else:
-                    # Простая заглушка вместо suggest_topics
-                    topics = []  # Не предлагаем дополнительные темы
-                    if topics:
-                        buttons = []
-                        for t in topics:
-                            token = str(uuid.uuid4())[:8]
-                            callback_map[token] = t
-                            cb = f"topic::{token}"
-                            buttons.append(
-                                [InlineKeyboardButton(text=t, callback_data=cb)]
-                            )
-                        topic_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-                        await message.answer(
-                            "Хотите узнать подробнее по этим темам:",
-                            reply_markup=topic_kb,
-                        )
-            except Exception:
-                logger.exception(
-                    "Failed to generate or send topic suggestions for chat %s",
-                    message.chat.id,
-                )
-
-    @router.callback_query(F.data.startswith("topic::"))
-    async def on_topic_callback(query: CallbackQuery) -> None:
-        # quick handler: emulate user asking the topic question
-        data = query.data or ""
-        token = data.split("::", 1)[1] if "::" in data else data
-        topic = callback_map.get(token, token)
-        try:
-            await query.answer()  # remove loading
-        except Exception:
-            pass
-        # Send typing and call RAG as if user asked topic
-        try:
-            chat_id = query.message.chat.id if query.message else query.from_user.id
-            try:
-                await query.bot.send_chat_action(chat_id, "typing")
-            except Exception:
-                pass
-            # Edit original message to show selection and remove buttons
-            if query.message:
-                try:
-                    sel_label = topic
-                    await query.message.edit_text(f'Вы выбрали: "{sel_label}"')
-                except Exception:
-                    pass
-            try:
-                # Generate reply using new agent method
-                response_text = await rag_service.process_query(topic)
-
-                # Create simple result for compatibility
-                class RAGResult:
-                    def __init__(self, final_answer, operator_requested):
-                        self.final_answer = final_answer
-                        self.operator_requested = operator_requested
-                        self.confidence_score = (
-                            0.3  # Низкий score = высокая уверенность
-                        )
-
-                rag_result = RAGResult(response_text, False)
-
-                # Send back to chat (LLM-generated)
-                text = rag_result.final_answer or "Нет ответа."
-                if query.message:
-                    await query.message.answer(text)
-                else:
-                    await query.bot.send_message(query.from_user.id, text)
-                # After sending answer, suggest follow-up topics (buttons) for this answer
-                try:
-                    follow_topics = await asyncio.to_thread(
-                        rag_service.suggest_topics, chat_id, topic, text
-                    )
-                    if follow_topics:
-                        # generate concise labels for follow-up topics
-                        labels = _make_concise_labels(follow_topics, max_len=30)
-                        f_buttons = []
-                        for t, lab in zip(follow_topics, labels):
-                            token = str(uuid.uuid4())[:8]
-                            callback_map[token] = t
-                            f_buttons.append(
-                                [
-                                    InlineKeyboardButton(
-                                        text=lab, callback_data=f"topic::{token}"
-                                    )
-                                ]
-                            )
-                        f_kb = InlineKeyboardMarkup(inline_keyboard=f_buttons)
-                        if query.message:
-                            await query.message.answer(
-                                "Хотите узнать ещё?", reply_markup=f_kb
-                            )
-                        else:
-                            await query.bot.send_message(
-                                query.from_user.id,
-                                "Хотите узнать ещё?",
-                                reply_markup=f_kb,
-                            )
-                except Exception:
-                    logger.exception("Failed to send follow-up topics")
-            except Exception:
-                logger.exception("Error handling topic callback")
-        except Exception:
-            logger.exception("Error handling topic callback")
+                except Exception as e:
+                    logger.warning(f"Failed to show KB buttons: {e}")
 
     @router.callback_query(F.data.startswith("kb::"))
     async def on_kb_callback(query: CallbackQuery) -> None:
+        """Обработчик нажатия на быстрые кнопки KB"""
+        await query.answer()
+
         data = query.data or ""
         parts = data.split("::")
         if len(parts) < 2:
-            try:
-                await query.answer()
-            except Exception:
-                pass
             return
 
         try:
             entry_id = int(parts[1])
-        except Exception:
-            try:
-                await query.answer()
-            except Exception:
-                pass
+        except ValueError:
             return
 
-        # optional label passed in callback (legacy) - we'll use it if present
-        label = parts[2] if len(parts) >= 3 else None
+        if knowledge_base is None:
+            return
 
         try:
-            await query.answer()  # remove loading state
-        except Exception:
-            pass
+            entry = await knowledge_base.get_by_id(entry_id)
+            if not entry:
+                await query.message.answer("Извините, не удалось найти ответ.")
+                return
 
-        try:
-            kb = knowledge_base
-            entry = None
-            answer_text = None
-            if kb is not None:
-                try:
-                    entry = await kb.get_by_id(entry_id)
-                    if entry:
-                        answer_text = entry.get("answer")
-                except Exception:
-                    logger.exception("Failed to fetch KB entry by id")
+            # Показываем что выбрал пользователь
+            question = entry.get("question", "")
+            if query.message and question:
+                await query.message.edit_text(f'Вы выбрали: "{html.escape(question)}"')
 
-            if not answer_text:
-                answer_text = "Извините, не удалось получить ответ из базы знаний."
+            # Отправляем ответ
+            answer_text = entry.get("answer", "Ответ не найден.")
+            safe_answer = html.escape(answer_text)
 
-            # Edit original message to show selection and clear buttons
             if query.message:
-                try:
-                    sel_display = label or (
-                        entry.get("question") if entry else str(entry_id)
-                    )
-                    await query.message.edit_text(
-                        f'Вы выбрали: "{html.escape(sel_display)}"'
-                    )
-                except Exception:
-                    pass
+                await query.message.answer(safe_answer, parse_mode="HTML")
+            else:
+                await query.bot.send_message(
+                    query.from_user.id, safe_answer, parse_mode="HTML"
+                )
 
-            # Craft a friendly LLM-based answer using the KB entry as context
-            try:
-                if entry:
-                    chat_id = (
-                        query.message.chat.id if query.message else query.from_user.id
-                    )
-                    telegram_responses = load_telegram_responses()
-                    user_prompt_template = telegram_responses.get(
-                        "kb_craft_user_prompt", ""
-                    )
-                    user_prompt = user_prompt_template.format(
-                        question=entry.get("question", ""),
-                        answer=entry.get("answer", ""),
-                    )
-                    messages_for_llm = [
-                        {"role": "system", "content": rag_service.persona_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ]
-                    crafted = await asyncio.to_thread(
-                        rag_service._call_llm, messages_for_llm, 0.1, 400
-                    )
-                    answer_to_send = crafted or answer_text
-                else:
-                    answer_to_send = answer_text
-            except Exception:
-                logger.exception("Failed to craft LLM answer from KB entry")
-                answer_to_send = answer_text
-
-            # Send the crafted answer (escape HTML to avoid accidental markup from LLM)
-            try:
-                safe_answer = html.escape(answer_to_send)
-                if query.message:
-                    await query.message.answer(safe_answer, parse_mode="HTML")
-                else:
-                    await query.bot.send_message(
-                        query.from_user.id, safe_answer, parse_mode="HTML"
-                    )
-            except Exception:
-                logger.exception("Failed to send KB crafted answer")
-        except Exception:
-            logger.exception("Error sending KB answer")
+        except Exception as e:
+            logger.error(f"Error in KB callback: {e}")
+            await query.message.answer("Произошла ошибка при получении ответа.")
 
     async def _send_bot_message(
         ticket_id: int, text: str, is_system: bool = False
@@ -750,7 +485,6 @@ def create_dispatcher(
 
     @router.message(CommandStart())
     async def on_start(message: Message) -> None:
-        # При /start всегда отвечаем ботом, заявку не создаем
         user_name = (
             message.from_user.first_name if message.from_user else "пользователь"
         )
@@ -759,14 +493,12 @@ def create_dispatcher(
             user_name=user_name
         )
 
-        # Fallback на случай пустого приветствия
         if not greeting.strip():
             greeting = (
                 f"👋 Привет, {user_name}! Я бот технической поддержки. Чем могу помочь?"
             )
 
-        formatted_greeting = f"{greeting}"
-        await message.answer(formatted_greeting, parse_mode="HTML")
+        await message.answer(greeting, parse_mode="HTML")
 
     @router.message(F.voice)
     async def on_voice(message: Message) -> None:
@@ -774,109 +506,79 @@ def create_dispatcher(
         chat_id = message.chat.id
         lock = user_locks[chat_id]
 
-        # Проверяем блокировку
         if lock.locked():
-            logger.info(f"User {chat_id} is spamming voice messages, ignoring")
             await message.answer(
                 "⏳ Пожалуйста, дождитесь ответа на предыдущее сообщение"
             )
             return
 
         async with lock:
-            try:
-                # Получаем файл голосового сообщения
-                voice = message.voice
-                if not voice:
-                    await message.answer("Не удалось получить голосовое сообщение.")
-                    return
+            voice = message.voice
+            if not voice:
+                await message.answer("Не удалось получить голосовое сообщение.")
+                return
 
-                # Уведомляем пользователя о начале обработки
-                processing_msg = await message.answer(
-                    "🎤 Обрабатываю голосовое сообщение..."
+            processing_msg = await message.answer(
+                "🎤 Обрабатываю голосовое сообщение..."
+            )
+
+            with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as temp_file:
+                await message.bot.download(voice.file_id, temp_file.name)
+                temp_file_path = temp_file.name
+
+            try:
+                transcribed_text = await rag_service.speech_to_text.transcribe_audio(
+                    temp_file_path
                 )
 
-                # Получаем Bot из параметров dispatcher
-                bot = message.bot
-
-                # Скачиваем файл во временную папку
-                with tempfile.NamedTemporaryFile(
-                    suffix=".ogg", delete=False
-                ) as temp_file:
-                    await bot.download(voice.file_id, temp_file.name)
-                    temp_file_path = temp_file.name
-
-                try:
-                    # Преобразуем голос в текст
-                    transcribed_text = (
-                        await rag_service.speech_to_text.transcribe_audio(
-                            temp_file_path
-                        )
+                if not transcribed_text:
+                    await processing_msg.edit_text(
+                        "❌ Не удалось распознать речь. Попробуйте еще раз или напишите текстом."
                     )
+                    return
 
-                    if not transcribed_text:
-                        await processing_msg.edit_text(
-                            "❌ Не удалось распознать речь. Попробуйте еще раз или напишите текстом."
-                        )
-                        return
+                await processing_msg.delete()
+                ticket_id, has_ticket = await _persist_message(
+                    message, transcribed_text
+                )
 
-                    # Удаляем сообщение "Обрабатываю..."
-                    await processing_msg.delete()
-
-                    # Сохраняем расшифровку только для оператора
-                    ticket_id, has_ticket = await _persist_message(
-                        message, transcribed_text
-                    )
-
-                    # Если есть заявка, сообщение уже сохранено как от пользователя — ничего не отправляем от бота
-                    # Если нет заявки — просто ответить пользователю
-                    if not has_ticket or not ticket_id:
-                        await _answer_with_rag_only(message, transcribed_text)
-
-                finally:
-                    # Удаляем временный файл
-                    if os.path.exists(temp_file_path):
-                        os.unlink(temp_file_path)
+                if not has_ticket or not ticket_id:
+                    await _answer_with_rag_only(message, transcribed_text)
 
             except Exception as e:
                 logger.error(f"Error processing voice message: {e}")
                 await message.answer(
                     "❌ Произошла ошибка при обработке голосового сообщения. Попробуйте написать текстом."
                 )
+            finally:
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
 
     @router.message(F.text)
     async def on_text(message: Message) -> None:
         user_text = message.text or ""
         chat_id = message.chat.id
-
-        # Получаем блокировку для этого пользователя
         lock = user_locks[chat_id]
 
-        # Проверяем, не обрабатывается ли уже другое сообщение
         if lock.locked():
-            logger.info(f"User {chat_id} is spamming, ignoring message")
             await message.answer(
                 "⏳ Пожалуйста, дождитесь ответа на предыдущее сообщение"
             )
             return
 
-        # Захватываем блокировку на время обработки
         async with lock:
-            # Проверяем, есть ли открытая заявка
             ticket_id, has_ticket = await _persist_message(message, user_text)
 
             if has_ticket and ticket_id:
-                # Есть открытая заявка - пользователь общается с оператором
-                # Ничего не отвечаем от бота
+                # Есть открытая заявка - общение с оператором, бот молчит
                 return
-            else:
-                # Нет открытой заявки - обычное общение с ботом
-                await _answer_with_rag_only(message, user_text)
+
+            # Нет заявки - отвечаем через RAG
+            await _answer_with_rag_only(message, user_text)
 
     @router.message(F.caption)
     async def on_caption(message: Message) -> None:
         caption_text = message.caption or ""
-
-        # Проверяем, есть ли открытая заявка
         ticket_id, has_ticket = await _persist_message(message, caption_text)
 
         warning = "Пока могу обрабатывать только текстовые сообщения."
@@ -885,12 +587,10 @@ def create_dispatcher(
         if has_ticket and ticket_id:
             await _send_bot_message(ticket_id, warning)
         elif caption_text:
-            # Нет заявки, но есть текст - отвечаем через RAG
             await _answer_with_rag_only(message, caption_text)
 
     @router.message()
     async def on_other(message: Message) -> None:
-        # Проверяем, есть ли открытая заявка
         ticket_id, has_ticket = await _persist_message(
             message, "[unsupported message type]"
         )
@@ -909,47 +609,27 @@ def create_dispatcher(
             return
 
         async with session_maker() as session:
-            # Ищем открытую заявку
             ticket = await crud.get_open_ticket_by_chat_id(session, chat.id)
+
             if ticket is None:
-                print(
-                    f"BOT DEBUG: Creating new ticket via operator button for chat {chat.id}"
-                )
-
-                # Получаем историю чата для создания заявки с контекстом
+                # Создаём новую заявку с историей чата
                 chat_history = rag_service.get_chat_history_since_last_ticket(chat.id)
-                print(
-                    f"BOT DEBUG: Retrieved chat history: {len(chat_history)} messages"
+                logger.info(
+                    f"Creating ticket with chat history: {len(chat_history)} messages"
                 )
 
-                # Генерируем summary на основе истории чата ПЕРЕД созданием тикета
+                # Генерируем summary
                 try:
                     summary = (
                         await rag_service.generate_ticket_summary_from_chat_history(
                             chat.id
                         )
                     )
-                    logger.info(
-                        f"Generated summary from chat history for user {chat.id}: {summary[:50]}..."
-                    )
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to generate summary from chat history for user {chat.id}: {e}"
-                    )
+                    logger.warning(f"Failed to generate summary: {e}")
                     summary = "Запрос помощи от пользователя"
 
-                # Находим последнее сообщение пользователя для заголовка заявки
-                last_user_message = "Запрос помощи"
-                for msg in reversed(chat_history):
-                    if msg.is_user and not msg.message.startswith("/"):
-                        last_user_message = msg.message
-                        break
-
-                print(
-                    f"BOT DEBUG: Using last user message for ticket: {last_user_message[:50]}..."
-                )
-
-                # Создаем заявку с историей
+                # Создаём заявку
                 title = (
                     _extract_title(user_obj=callback_query.from_user)
                     if callback_query.from_user
@@ -957,45 +637,24 @@ def create_dispatcher(
                 )
                 ticket = await crud.create_ticket(session, chat.id, title)
 
-                # Проверяем, есть ли активные подключения
                 should_mark_as_read = connection_manager.has_active_chat_connections(
                     ticket.id
                 )
 
-                # Добавляем всю историю чата в заявку
-                for i, chat_msg in enumerate(chat_history):
-                    try:
-                        sender = USER_SENDER if chat_msg.is_user else BOT_SENDER
-                        await crud.add_message(
-                            session,
-                            ticket_id=ticket.id,
-                            sender=sender,
-                            text=chat_msg.message,
-                            is_system=False,
-                            is_read=should_mark_as_read,
-                        )
-                        print(
-                            f"BOT DEBUG: Added history message {i+1}: [{sender}] {chat_msg.message[:30]}..."
-                        )
-                    except Exception as e:
-                        print(f"BOT DEBUG: Failed to add history message {i+1}: {e}")
+                # Добавляем историю чата
+                for chat_msg in chat_history:
+                    sender = USER_SENDER if chat_msg.is_user else BOT_SENDER
+                    await crud.add_message(
+                        session,
+                        ticket_id=ticket.id,
+                        sender=sender,
+                        text=chat_msg.message,
+                        is_system=False,
+                        is_read=should_mark_as_read,
+                    )
 
-                # Отмечаем создание заявки в RAG сервисе
                 rag_service.mark_ticket_created(chat.id)
-                print(
-                    f"BOT DEBUG: Added {len(chat_history)} messages to ticket {ticket.id}"
-                )
-
-                # Сохраняем summary в БД
-                try:
-                    await crud.update_ticket_summary(session, ticket.id, summary)
-                    logger.info(
-                        f"Saved summary for ticket {ticket.id}: {summary[:50]}..."
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to save summary for ticket {ticket.id}: {e}"
-                    )
+                await crud.update_ticket_summary(session, ticket.id, summary)
 
             # Переводим в статус "открыта" если была в работе
             if ticket.status != models.TicketStatus.OPEN:
@@ -1003,49 +662,44 @@ def create_dispatcher(
                     session, ticket.id, models.TicketStatus.OPEN
                 )
 
-            # Генерируем summary для новой заявки
-            try:
-                messages = await crud.list_messages_for_ticket(session, ticket.id)
-                if messages:
+            # Генерируем summary и классификацию
+            messages = await crud.list_messages_for_ticket(session, ticket.id)
+            if messages:
+                try:
                     summary = await rag_service.generate_ticket_summary(
                         messages, ticket_id=ticket.id
                     )
                     await crud.update_ticket_summary(session, ticket.id, summary)
-                    logger.info(f"Generated summary for ticket {ticket.id}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate summary: {e}")
 
-                    # Автоматическая классификация при передаче оператору
-                    try:
-                        # Формируем историю диалога для классификации
-                        dialogue_text = ""
-                        for msg in messages[-10:]:  # Берем последние 10 сообщений
-                            sender_name = (
-                                "Пользователь" if msg.sender == "user" else "Бот"
+                # Автоматическая классификация
+                try:
+                    from app.rag.agent_tools import classify_request
+
+                    dialogue_text = "\n".join(
+                        [
+                            f"{'Пользователь' if msg.sender == 'user' else 'Бот'}: {msg.text}"
+                            for msg in messages[-10:]
+                        ]
+                    )
+
+                    if dialogue_text.strip():
+                        classification_result = classify_request(
+                            dialogue_history=dialogue_text
+                        )
+                        if "Классификация проблемы:" in classification_result:
+                            categories = classification_result.split(
+                                "Классификация проблемы:"
+                            )[1].strip()
+                            await crud.update_ticket_classification(
+                                session, ticket.id, categories
                             )
-                            dialogue_text += f"{sender_name}: {msg.text}\n"
-
-                        if dialogue_text.strip():
-                            # Используем встроенную функцию классификации из agent_tools
-                            from app.rag.agent_tools import classify_request
-
-                            classification_result = classify_request(
-                                dialogue_history=dialogue_text
+                            logger.info(
+                                f"Generated classification for ticket {ticket.id}: {categories}"
                             )
-
-                            # Извлекаем категории из результата (формат: "Классификация проблемы: Категория1, Категория2")
-                            if "Классификация проблемы:" in classification_result:
-                                categories = classification_result.split(
-                                    "Классификация проблемы:"
-                                )[1].strip()
-                                await crud.update_ticket_classification(
-                                    session, ticket.id, categories
-                                )
-                                logger.info(
-                                    f"Generated classification for ticket {ticket.id}: {categories}"
-                                )
-                    except Exception as e:
-                        logger.warning(f"Failed to generate classification: {e}")
-            except Exception as e:
-                logger.warning(f"Failed to generate summary: {e}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate classification: {e}")
 
             tickets_payload = await _serialize_tickets(session)
 
