@@ -302,7 +302,7 @@ async def get_user_permissions_api(request: Request):
 @require_permission("knowledge")
 async def knowledge_admin(request: Request):
     async with KnowledgeSessionLocal() as session:
-        total = await tickets_crud.count_chunks(session)
+        total = await tickets_crud.count_document_chunks(session)
     return templates.TemplateResponse(
         "knowledge.html",
         {"request": request, "entry_count": total},
@@ -351,7 +351,7 @@ async def get_dashboard_stats(
 
     # Статистика по базе знаний
     async with KnowledgeSessionLocal() as knowledge_session:
-        knowledge_count = await tickets_crud.count_chunks(knowledge_session)
+        knowledge_count = await tickets_crud.count_document_chunks(knowledge_session)
 
     return {
         "tickets": tickets_stats,
@@ -510,7 +510,7 @@ async def knowledge_stats(
     _: None = Depends(auth.ensure_api_auth),
 ) -> KnowledgeStats:
     # Теперь считаем только чанки - все данные только в чанках
-    total = await tickets_crud.count_chunks(session)
+    total = await tickets_crud.count_document_chunks(session)
     return KnowledgeStats(total_entries=total)
 
 

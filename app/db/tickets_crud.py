@@ -325,6 +325,84 @@ async def count_document_chunks(session: AsyncSession) -> int:
     return int(count or 0)
 
 
+async def delete_chunks_by_source(session: AsyncSession, source_file: str) -> int:
+    """Удалить все чанки из конкретного файла."""
+    result = await session.execute(
+        delete(models.DocumentChunk).where(
+            models.DocumentChunk.source_file == source_file
+        )
+    )
+    await session.commit()
+    return result.rowcount
+
+
+async def add_document_chunk(
+    session: AsyncSession,
+    content: str,
+    source_file: str,
+    chunk_index: int,
+    start_char: int = 0,
+    end_char: int = 0,
+    embedding: bytes | None = None,
+    chunk_metadata: str | None = None,
+) -> models.DocumentChunk:
+    """Добавить чанк документа в базу знаний."""
+    chunk = models.DocumentChunk(
+        content=content,
+        source_file=source_file,
+        chunk_index=chunk_index,
+        start_char=start_char,
+        end_char=end_char,
+        embedding=embedding,
+        chunk_metadata=chunk_metadata,
+    )
+    session.add(chunk)
+    await session.commit()
+    await session.refresh(chunk)
+    return chunk
+
+
+async def add_document_chunks(
+    session: AsyncSession, chunks_data: list[tuple]
+) -> list[models.DocumentChunk]:
+    """Добавить несколько чанков документов в базу знаний.
+
+    Args:
+        chunks_data: список кортежей (content, source_file, chunk_index, start_char, end_char, embedding)
+    """
+    chunks = []
+    for chunk_tuple in chunks_data:
+        # Распаковываем кортеж
+        content, source_file, chunk_index, start_char, end_char, embedding = chunk_tuple
+
+        chunk = models.DocumentChunk(
+            content=content,
+            source_file=source_file,
+            chunk_index=chunk_index,
+            start_char=start_char,
+            end_char=end_char,
+            embedding=embedding,
+            chunk_metadata=None,
+        )
+        session.add(chunk)
+        chunks.append(chunk)
+
+    await session.commit()
+
+    # Обновляем все чанки после commit
+    for chunk in chunks:
+        await session.refresh(chunk)
+
+    return chunks
+
+
+async def delete_all_chunks(session: AsyncSession) -> int:
+    """Удалить все чанки из базы знаний."""
+    result = await session.execute(delete(models.DocumentChunk))
+    await session.commit()
+    return result.rowcount
+
+
 # ========== DASHBOARD STATISTICS ==========
 
 
