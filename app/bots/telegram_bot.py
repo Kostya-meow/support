@@ -218,6 +218,21 @@ def create_dispatcher(
         """Создает новую заявку и добавляет первое сообщение"""
         chat_id = message.chat.id
         title = _extract_title(message)
+
+        # Генерируем summary на основе истории чата ПЕРЕД созданием тикета
+        try:
+            summary = await rag_service.generate_ticket_summary_from_chat_history(
+                chat_id
+            )
+            logger.info(
+                f"Generated summary from chat history for user {chat_id}: {summary[:50]}..."
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to generate summary from chat history for user {chat_id}: {e}"
+            )
+            summary = "Запрос помощи от пользователя"
+
         async with session_maker() as session:
             # Создаем новую заявку
             ticket = await crud.create_ticket(session, chat_id, title)
@@ -281,6 +296,17 @@ def create_dispatcher(
                 # НЕ очищаем историю чата - оставляем для будущих заявок
                 logger.info(f"Marked ticket creation for user {chat_id}")
 
+                # Сохраняем summary в БД
+                try:
+                    await crud.update_ticket_summary(session, ticket.id, summary)
+                    logger.info(
+                        f"Saved summary for ticket {ticket.id}: {summary[:50]}..."
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to save summary for ticket {ticket.id}: {e}"
+                    )
+
                 # Проверяем, есть ли уже текущее сообщение в истории
                 last_user_messages = [
                     msg.message for msg in chat_history if msg.is_user
@@ -318,21 +344,8 @@ def create_dispatcher(
                     is_read=should_mark_as_read,
                 )
 
-            # Генерируем summary сразу после создания заявки
-            try:
-                messages = await crud.list_messages_for_ticket(session, ticket.id)
-                summary = await rag_service.generate_ticket_summary(
-                    messages, ticket_id=ticket.id
-                )
-                # Сохраняем summary в БД
-                await crud.update_ticket_summary(session, ticket.id, summary)
-                logger.info(
-                    f"Generated and saved summary for ticket {ticket.id}: {summary[:50]}..."
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to generate summary for ticket {ticket.id}: {e}"
-                )
+            # Больше НЕ генерируем summary после добавления сообщений
+            # Summary уже был сгенерирован из истории чата выше
 
         await _broadcast_message(ticket.id, MessageRead.from_orm(db_message))
         await _broadcast_tickets()
@@ -396,20 +409,27 @@ def create_dispatcher(
                 await message.bot.send_chat_action(message.chat.id, "typing")
             except Exception:
                 pass
-            # Сохраняем conversation_id для совместимости
+
+            # Используем conversation_id как chat_id
             conversation_id = message.chat.id
-            
-            # Используем новый агентный метод
-            response_text = await rag_service.process_query(user_text)
-            
-            # Создаем простой результат для совместимости
-            class RAGResult:
-                def __init__(self, final_answer, operator_requested):
-                    self.final_answer = final_answer
-                    self.operator_requested = operator_requested
-                    self.confidence_score = 0.3  # Низкий score = высокая уверенность
-            
-            rag_result = RAGResult(response_text, 'оператор' in response_text.lower())
+
+            # Используем generate_reply который СОХРАНЯЕТ историю
+            # Если это HybridRAGService - метод асинхронный, просто await
+            # Если это RAGService - метод синхронный, используем to_thread
+            try:
+                # Пробуем вызвать как async
+                rag_result = await rag_service.generate_reply(
+                    conversation_id, user_text
+                )
+            except TypeError:
+                # Если метод синхронный, вызываем через to_thread
+                rag_result = await asyncio.to_thread(
+                    rag_service.generate_reply, conversation_id, user_text
+                )
+
+            print(
+                f"BOT DEBUG: RAG result - operator_requested: {rag_result.operator_requested}, confidence: {rag_result.confidence_score}"
+            )
         except Exception as exc:
             logger.exception("RAG generation failed: %s", exc)
             fallback = "Не смогла обработать запрос. Попробуйте ещё раз или позовите оператора."
@@ -556,16 +576,18 @@ def create_dispatcher(
             try:
                 # Generate reply using new agent method
                 response_text = await rag_service.process_query(topic)
-                
-                # Create simple result for compatibility  
+
+                # Create simple result for compatibility
                 class RAGResult:
                     def __init__(self, final_answer, operator_requested):
                         self.final_answer = final_answer
                         self.operator_requested = operator_requested
-                        self.confidence_score = 0.3  # Низкий score = высокая уверенность
-                
+                        self.confidence_score = (
+                            0.3  # Низкий score = высокая уверенность
+                        )
+
                 rag_result = RAGResult(response_text, False)
-                
+
                 # Send back to chat (LLM-generated)
                 text = rag_result.final_answer or "Нет ответа."
                 if query.message:
@@ -900,6 +922,22 @@ def create_dispatcher(
                     f"BOT DEBUG: Retrieved chat history: {len(chat_history)} messages"
                 )
 
+                # Генерируем summary на основе истории чата ПЕРЕД созданием тикета
+                try:
+                    summary = (
+                        await rag_service.generate_ticket_summary_from_chat_history(
+                            chat.id
+                        )
+                    )
+                    logger.info(
+                        f"Generated summary from chat history for user {chat.id}: {summary[:50]}..."
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate summary from chat history for user {chat.id}: {e}"
+                    )
+                    summary = "Запрос помощи от пользователя"
+
                 # Находим последнее сообщение пользователя для заголовка заявки
                 last_user_message = "Запрос помощи"
                 for msg in reversed(chat_history):
@@ -948,6 +986,17 @@ def create_dispatcher(
                     f"BOT DEBUG: Added {len(chat_history)} messages to ticket {ticket.id}"
                 )
 
+                # Сохраняем summary в БД
+                try:
+                    await crud.update_ticket_summary(session, ticket.id, summary)
+                    logger.info(
+                        f"Saved summary for ticket {ticket.id}: {summary[:50]}..."
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to save summary for ticket {ticket.id}: {e}"
+                    )
+
             # Переводим в статус "открыта" если была в работе
             if ticket.status != models.TicketStatus.OPEN:
                 await crud.update_ticket_status(
@@ -963,25 +1012,36 @@ def create_dispatcher(
                     )
                     await crud.update_ticket_summary(session, ticket.id, summary)
                     logger.info(f"Generated summary for ticket {ticket.id}")
-                    
+
                     # Автоматическая классификация при передаче оператору
                     try:
                         # Формируем историю диалога для классификации
                         dialogue_text = ""
                         for msg in messages[-10:]:  # Берем последние 10 сообщений
-                            sender_name = "Пользователь" if msg.sender == "user" else "Бот"
+                            sender_name = (
+                                "Пользователь" if msg.sender == "user" else "Бот"
+                            )
                             dialogue_text += f"{sender_name}: {msg.text}\n"
-                        
+
                         if dialogue_text.strip():
                             # Используем встроенную функцию классификации из agent_tools
                             from app.rag.agent_tools import classify_request
-                            classification_result = classify_request(dialogue_history=dialogue_text)
-                            
+
+                            classification_result = classify_request(
+                                dialogue_history=dialogue_text
+                            )
+
                             # Извлекаем категории из результата (формат: "Классификация проблемы: Категория1, Категория2")
                             if "Классификация проблемы:" in classification_result:
-                                categories = classification_result.split("Классификация проблемы:")[1].strip()
-                                await crud.update_ticket_classification(session, ticket.id, categories)
-                                logger.info(f"Generated classification for ticket {ticket.id}: {categories}")
+                                categories = classification_result.split(
+                                    "Классификация проблемы:"
+                                )[1].strip()
+                                await crud.update_ticket_classification(
+                                    session, ticket.id, categories
+                                )
+                                logger.info(
+                                    f"Generated classification for ticket {ticket.id}: {categories}"
+                                )
                     except Exception as e:
                         logger.warning(f"Failed to generate classification: {e}")
             except Exception as e:

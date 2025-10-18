@@ -314,7 +314,7 @@ def create_vk_bot(
                 logger.info(
                     f"Generated and saved summary for VK ticket {ticket.id}: {summary[:50]}..."
                 )
-                
+
                 # Автоматическая классификация при передаче оператору
                 try:
                     # Формируем историю диалога для классификации
@@ -322,19 +322,30 @@ def create_vk_bot(
                     for msg in messages[-10:]:  # Берем последние 10 сообщений
                         sender_name = "Пользователь" if msg.sender == "user" else "Бот"
                         dialogue_text += f"{sender_name}: {msg.text}\n"
-                    
+
                     if dialogue_text.strip():
                         # Используем встроенную функцию классификации из agent_tools
                         from app.rag.agent_tools import classify_request
-                        classification_result = classify_request(dialogue_history=dialogue_text)
-                        
+
+                        classification_result = classify_request(
+                            dialogue_history=dialogue_text
+                        )
+
                         # Извлекаем категории из результата (формат: "Классификация проблемы: Категория1, Категория2")
                         if "Классификация проблемы:" in classification_result:
-                            categories = classification_result.split("Классификация проблемы:")[1].strip()
-                            await crud.update_ticket_classification(session, ticket.id, categories)
-                            logger.info(f"Generated classification for VK ticket {ticket.id}: {categories}")
+                            categories = classification_result.split(
+                                "Классификация проблемы:"
+                            )[1].strip()
+                            await crud.update_ticket_classification(
+                                session, ticket.id, categories
+                            )
+                            logger.info(
+                                f"Generated classification for VK ticket {ticket.id}: {categories}"
+                            )
                 except Exception as e:
-                    logger.warning(f"Failed to generate classification for VK ticket: {e}")
+                    logger.warning(
+                        f"Failed to generate classification for VK ticket: {e}"
+                    )
             except Exception as e:
                 logger.warning(
                     f"Failed to generate summary for VK ticket {ticket.id}: {e}"
@@ -651,11 +662,21 @@ def create_vk_bot(
             logger.info(
                 f"VK: Calling RAG generate_reply for conversation {conversation_id}"
             )
-            rag_result: RAGResult = await asyncio.to_thread(
-                rag_service.generate_reply,
-                conversation_id,
-                user_text,
-            )
+            # Если это HybridRAGService - метод асинхронный, просто await
+            # Если это RAGService - метод синхронный, используем to_thread
+            try:
+                # Пробуем вызвать как async
+                rag_result: RAGResult = await rag_service.generate_reply(
+                    conversation_id,
+                    user_text,
+                )
+            except TypeError:
+                # Если метод синхронный, вызываем через to_thread
+                rag_result: RAGResult = await asyncio.to_thread(
+                    rag_service.generate_reply,
+                    conversation_id,
+                    user_text,
+                )
             logger.info(
                 f"VK: RAG result received: operator_requested={rag_result.operator_requested}, answer_length={len(rag_result.final_answer) if rag_result.final_answer else 0}"
             )

@@ -140,20 +140,15 @@ class SimulatorService:
                     # Генерируем вопрос из чанка
                     character_info = self.characters[session.character]
 
-                    # Создаем промпт для извлечения проблемы и создания вопроса
-                    extraction_prompt = (
-                        f"Ты — {character_info['name']}, {character_info['description']}.\n\n"
-                        f"Прочитай следующий фрагмент документации:\n\n"
-                        f"---\n{chunk.content}\n---\n\n"
-                        f"На основе этого фрагмента:\n"
-                        f"1. Определи одну конкретную проблему или ситуацию, которая там описана\n"
-                        f"2. Сформулируй вопрос от лица пользователя {character_info['name']}\n\n"
-                        f"Стиль персонажа:\n"
-                        f"- Новичок Вася: простые слова, неуверенность, не знает терминов\n"
-                        f"- Специалист Ольга: точно и профессионально, знает что хочет\n"
-                        f"- Директор Игорь: требовательный тон, срочность, может быть недоволен\n\n"
-                        f"Верни ТОЛЬКО сформулированный вопрос (1-3 предложения), как будто ты реальный пользователь.\n"
-                        f"НЕ пиши 'вопрос:', 'проблема:' и т.п. - только сам вопрос."
+                    # Получаем промпт из конфига и форматируем
+                    extraction_prompt_template = self.simulator_prompts.get(
+                        "question_generation", {}
+                    ).get("extraction_prompt", "")
+
+                    extraction_prompt = extraction_prompt_template.format(
+                        character_name=character_info["name"],
+                        character_description=character_info["description"],
+                        chunk_content=chunk.content,
                     )
 
                     # Генерируем вопрос через LLM
@@ -181,15 +176,15 @@ class SimulatorService:
                     # Используем старую систему
                     character_info = self.characters[session.character]
 
-                    rephrase_prompt = (
-                        f"Ты — {character_info['name']}, {character_info['description']}.\n\n"
-                        f"Перефразируй следующий вопрос в своем стиле:\n\n"
-                        f"{kb_entry.question}\n\n"
-                        f"ВАЖНО:\n"
-                        f"- Новичок Вася: используй простые слова, может не знать терминов, говори неуверенно\n"
-                        f"- Специалист Ольга: говори точно и профессионально, знаешь что хочешь\n"
-                        f"- Директор Игорь: требовательный тон, добавь срочность, можешь быть недовольным\n\n"
-                        f"Верни ТОЛЬКО перефразированный вопрос (1-2 предложения), без объяснений."
+                    # Получаем промпт из конфига и форматируем
+                    rephrase_prompt_template = self.simulator_prompts.get(
+                        "question_generation", {}
+                    ).get("rephrase_prompt", "")
+
+                    rephrase_prompt = rephrase_prompt_template.format(
+                        character_name=character_info["name"],
+                        character_description=character_info["description"],
+                        question=kb_entry.question,
                     )
 
                     rephrased_question = self._generate_with_llm(rephrase_prompt)
@@ -418,10 +413,18 @@ class SimulatorService:
     def _generate_with_llm(self, prompt: str) -> str:
         """Генерация текста через LLM"""
         try:
-            # Используем LLM из RAG сервиса
+            from app.rag.service import get_llm_client
+            import os
+
+            # Получаем LLM клиент через функцию
+            llm_client = get_llm_client()
+
+            # Получаем модель из переменных окружения или конфига
+            llm_model = os.getenv("LLM_MODEL") or self.rag_service.llm_model
+
             messages = [{"role": "user", "content": prompt}]
-            response = self.rag_service.llm_client.chat.completions.create(
-                model=self.rag_service.llm_model,
+            response = llm_client.chat.completions.create(
+                model=llm_model,
                 messages=messages,
                 temperature=0.7,
                 max_tokens=500,

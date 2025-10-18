@@ -28,19 +28,27 @@ logger = logging.getLogger(__name__)
 def get_llm_client():
     """Создает и возвращает клиент для LLM"""
     import yaml
-    
+
     # Загружаем конфигурацию
     with open("configs/rag_config.yaml", "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    
+
     llm_cfg = config.get("llm", {})
-    base_url = llm_cfg.get("base_url") or os.getenv("LLM_API_BASE") or os.getenv("OPENAI_BASE_URL")
-    api_key = llm_cfg.get("api_key") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
-    
+    base_url = (
+        llm_cfg.get("base_url")
+        or os.getenv("LLM_API_BASE")
+        or os.getenv("OPENAI_BASE_URL")
+    )
+    api_key = (
+        llm_cfg.get("api_key")
+        or os.getenv("LLM_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+    )
+
     client_kwargs = {"api_key": api_key or "EMPTY"}
     if base_url:
         client_kwargs["base_url"] = base_url
-    
+
     return OpenAI(**client_kwargs)
 
 
@@ -214,6 +222,7 @@ class RAGService:
         self.output_threshold = float(rag_cfg.get("output_threshold", 1.0))
         self.operator_threshold = float(rag_cfg.get("operator_threshold", 0.8))
         self.history_window = int(rag_cfg.get("history_window", 3))
+        self.documents_history_window = int(rag_cfg.get("documents_history_window", 1))
         self.filter_prompt = rag_cfg.get("filter_prompt", "")
         self.evaluation_prompt = rag_cfg.get("evaluation_prompt", "")
         self.persona_prompt = rag_cfg.get("persona_prompt", "")
@@ -252,6 +261,10 @@ class RAGService:
         self.histories: dict[int, list[dict[str, str]]] = defaultdict(list)
         # Хранение временной истории чатов (до создания заявки)
         self.chat_histories: dict[int, list[ChatMessage]] = defaultdict(list)
+        # Хранение истории документов для каждого пользователя
+        self.documents_histories: dict[int, list[list[dict[str, Any]]]] = defaultdict(
+            list
+        )
 
         # Инициализация Speech-to-Text сервиса
         self.speech_to_text = SpeechToTextService(
@@ -732,9 +745,44 @@ class RAGService:
             return RAGResult(message, True, filter_info, 0.0)
 
         documents = self._retrieve_documents(preprocessed_query)
-        if not documents:
+
+        # Сохраняем текущие документы в историю
+        if documents:
+            user_doc_history = self.documents_histories[conversation_id]
+            user_doc_history.append(documents)
+            # Ограничиваем размер истории документов
+            if len(user_doc_history) > self.documents_history_window:
+                self.documents_histories[conversation_id] = user_doc_history[
+                    -self.documents_history_window :
+                ]
+
+        # Объединяем текущие документы с документами из истории
+        all_documents = documents.copy()
+        if (
+            self.documents_history_window > 0
+            and conversation_id in self.documents_histories
+        ):
+            # Добавляем документы из прошлых запросов (кроме текущего)
+            past_docs = (
+                self.documents_histories[conversation_id][:-1]
+                if len(self.documents_histories[conversation_id]) > 1
+                else []
+            )
+            for doc_set in past_docs:
+                # Добавляем только уникальные документы
+                for doc in doc_set:
+                    if doc not in all_documents:
+                        all_documents.append(doc)
+                        # Ограничиваем общее количество документов
+                        if len(all_documents) >= self.top_n + self.top_m:
+                            break
+                if len(all_documents) >= self.top_n + self.top_m:
+                    break
+
+        if not all_documents:
             message = "Не нашла инструкций по этому вопросу. Попробуйте уточнить или попросите оператора."
             self._store_history(conversation_id, preprocessed_query, message)
+            print(f"RAG DEBUG: No documents found, returning with score=1.0")
             return RAGResult(
                 message, False, filter_info, 1.0
             )  # Высокий score = низкая уверенность
@@ -742,7 +790,7 @@ class RAGService:
         history_text = self._format_history(conversation_id)
         # Build a clean, human-readable documents payload (titles + short excerpts)
         safe_docs = []
-        for d in documents:
+        for d in all_documents:
             title = d.get("title") or "Документ"
             content = d.get("content") or ""
             # Truncate content to a reasonable length for the prompt
@@ -765,6 +813,8 @@ class RAGService:
         cleaned_raw = re.sub(r"doc_\d+", "", final_answer_raw)
         cleaned_raw = re.sub(r"\[doc_\d+\]", "", cleaned_raw)
         final_answer, eval_score = self._evaluate_answer(cleaned_raw, history_text)
+        print(f"RAG DEBUG: Generated answer: {final_answer[:100]}...")
+        print(f"RAG DEBUG: Evaluation score: {eval_score}")
         # Greeting suppression is handled via persona prompt; do not post-process greetings here.
         filter_info["evaluation_probability"] = eval_score
         self._store_history(conversation_id, preprocessed_query, final_answer)
@@ -887,6 +937,54 @@ class RAGService:
             if ticket_id:
                 self._summary_cache[ticket_id] = error_summary
             return error_summary
+
+    async def generate_ticket_summary_from_chat_history(self, user_id: int) -> str:
+        """
+        Генерирует краткое саммари на основе истории чата с момента последнего тикета
+
+        Используется при переключении на оператора для создания контекста
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Краткое описание проблемы на основе истории чата
+        """
+        # Получаем историю чата с момента последнего закрытия тикета
+        chat_history = self.get_chat_history_since_last_ticket(user_id)
+
+        if not chat_history:
+            return "Нет истории диалога"
+
+        # Собираем переписку из истории чата
+        conversation = []
+        for msg in chat_history:
+            role = "Пользователь" if msg.is_user else "Бот"
+            conversation.append(f"{role}: {msg.message}")
+
+        conversation_text = "\n".join(conversation)
+
+        summary_prompt = self.ticket_summary_prompt.format(
+            conversation_text=conversation_text
+        )
+
+        try:
+            response = self.llm_client.chat.completions.create(
+                model=self.llm_model,
+                messages=[{"role": "user", "content": summary_prompt}],
+                max_tokens=150,
+                temperature=0.3,
+            )
+
+            summary = response.choices[0].message.content.strip()
+            if self.strip_thinking_tags_enabled:
+                summary = _strip_thinking_tags(summary)
+
+            return summary or "Не удалось создать саммари"
+
+        except Exception as e:
+            logger.error(f"Error generating summary from chat history: {e}")
+            return "Ошибка при создании саммари"
 
 
 __all__ = ["RAGService", "RAGResult"]
