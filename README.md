@@ -198,6 +198,46 @@ faq:
 
 ## Deployment
 
+### Быстрый запуск с ngrok (рекомендуется для разработки)
+
+**Для Telegram бота нужен публичный URL. Используйте ngrok:**
+
+1. **Подготовка**:
+```bash
+# Скопируйте .env.example в .env
+cp .env.example .env
+```
+
+2. **Настройка .env**:
+```bash
+# Обязательные поля:
+TELEGRAM_BOT_TOKEN=ваш_токен_телеграм_бота
+LLM_API_KEY=ваш_ключ_llm_api
+NGROK_AUTHTOKEN=ваш_токен_ngrok
+
+# Опционально:
+LLM_MODEL=gemma-2-7b
+BASE_URL=auto  # будет определяться автоматически из ngrok
+```
+
+3. **Запуск одной командой**:
+```bash
+# Windows
+start_with_ngrok.bat
+
+# Или вручную через PowerShell  
+.\tools\NGROK_RUNNER.ps1
+
+# Или через Python (кроссплатформенно)
+python tools/run_with_ngrok.py
+```
+
+**Результат**: 
+- Приложение запустится на локальном порту 8000
+- ngrok создаст публичный URL (например: `https://abc123.ngrok-free.app`)
+- URL автоматически определится в боте
+- Telegram бот будет работать с внешним доступом
+
 ### Локальный запуск (без Docker)
 
 1. Установка зависимостей:
@@ -216,7 +256,7 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
-### Docker Compose (рекомендуется)
+### Docker Compose
 
 1. Настройка `.env`:
 ```bash
@@ -239,6 +279,21 @@ docker-compose logs -f app
 - FFmpeg для Whisper
 - Volume для кеша моделей Whisper (~1.5GB)
 - Hot-reload для разработки
+
+### Настройка ngrok
+
+1. **Регистрация**: Создайте аккаунт на [ngrok.com](https://ngrok.com)
+2. **Получите токен**: Dashboard → Your Authtoken
+3. **Добавьте в .env**:
+```bash
+NGROK_AUTHTOKEN=2Pf3JDFeJTHcRoi0NkCqgUVV68_48P3gyynHQFuwqp8QJpC4
+```
+
+**Альтернативы ngrok**:
+- Cloudflare Tunnel
+- Serveo
+- LocalTunnel
+- Собственный VPS/хостинг
 
 ### Порты
 - **8000** - веб-интерфейс и API

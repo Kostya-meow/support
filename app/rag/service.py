@@ -119,16 +119,21 @@ class SpeechToTextService:
         config: dict[str, Any] | None = None,
     ) -> None:
         """Инициализация сервиса speech-to-text с локальной моделью Whisper"""
+        import os
         from app.rag.whisper_service import WhisperService
 
         # Получаем настройки из конфигурации
         speech_cfg = (config or {}).get("speech", {})
         model_name = speech_cfg.get("whisper_model", "medium")
-        ffmpeg_path = speech_cfg.get("ffmpeg_path", "") or None
+
+        # Получаем FFmpeg путь из переменной окружения или конфигурации
+        ffmpeg_path = (
+            os.getenv("FFMPEG_PATH") or speech_cfg.get("ffmpeg_path", "") or None
+        )
 
         logger.info(f"🔧 Инициализация SpeechToTextService")
         logger.info(f"   - Модель: {model_name}")
-        logger.info(f"   - FFmpeg путь из конфига: {ffmpeg_path}")
+        logger.info(f"   - FFmpeg путь: {ffmpeg_path}")
 
         # Используем локальную модель Whisper
         self.whisper = WhisperService(model_name=model_name, ffmpeg_path=ffmpeg_path)

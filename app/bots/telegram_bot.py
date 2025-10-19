@@ -819,6 +819,16 @@ def create_dispatcher(
                 temp_file_path = temp_file.name
 
             try:
+                # Проверяем наличие speech_to_text сервиса
+                if (
+                    not hasattr(rag_service, "speech_to_text")
+                    or rag_service.speech_to_text is None
+                ):
+                    await processing_msg.edit_text(
+                        "❌ Сервис распознавания речи недоступен. Попробуйте написать текстом."
+                    )
+                    return
+
                 transcribed_text = await rag_service.speech_to_text.transcribe_audio(
                     temp_file_path
                 )

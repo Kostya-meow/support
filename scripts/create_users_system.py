@@ -185,6 +185,21 @@ def create_users_database():
         (password_hash,),
     )
 
+    # Создание тестового пользователя
+    test_password = "test"
+    test_password_hash = bcrypt.hashpw(
+        test_password.encode("utf-8"), bcrypt.gensalt()
+    ).decode("utf-8")
+
+    cursor.execute(
+        """
+    INSERT OR IGNORE INTO users (username, password_hash, full_name, role_id, is_admin)
+    SELECT 'test', ?, 'Тестовый пользователь', id, 1
+    FROM roles WHERE name = 'admin'
+    """,
+        (test_password_hash,),
+    )
+
     # Вставка базовых настроек системы
     settings = [
         (

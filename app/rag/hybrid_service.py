@@ -47,10 +47,15 @@ class HybridRAGService:
             self.rag_service = RAGService(config)
             logger.info("Base RAG service initialized")
             print("HybridRAGService: Base RAG service initialized")
+
+            # Делегируем speech_to_text к базовому сервису
+            self.speech_to_text = self.rag_service.speech_to_text
+
         except Exception as e:
             logger.warning(f"Failed to initialize base RAG service: {e}")
             print(f"HybridRAGService: Failed to init base RAG service: {e}")
             self.rag_service = None
+            self.speech_to_text = None
 
         self._initialize_model()
         if self.use_agent:
