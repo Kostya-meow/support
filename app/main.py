@@ -189,6 +189,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _main_loop = asyncio.get_running_loop()
     logger.info(f"Main event loop stored: {_main_loop}")
 
+    # Определяем и логируем базовый URL приложения
+    from app.utils import get_base_url
+
+    base_url = get_base_url()
+    logger.info(f"🌐 Application BASE_URL: {base_url}")
+
     await init_db()
     app.state.connection_manager = connection_manager
 
@@ -211,6 +217,44 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     get_sentence_transformer()  # Инициализирует модель один раз
     logger.info("SentenceTransformer ready")
+
+    # Инициализируем FAQ service
+    logger.info("Initializing FAQ service...")
+    from app.rag.faq_service import set_faq_config, set_faq_cache
+
+    faq_config = rag_config.get("faq", {})
+    faq_update_interval = faq_config.get("update_interval_minutes", 5)
+    faq_top_chunks = faq_config.get("top_chunks_count", 10)
+    set_faq_config(faq_update_interval, faq_top_chunks)
+
+    # Устанавливаем начальный FAQ (placeholder до первого обновления)
+    initial_faq = [
+        {
+            "question": "Добро пожаловать в FAQ!",
+            "answer": "Часто задаваемые вопросы автоматически обновляются на основе популярных запросов. Первое обновление произойдёт через несколько минут.",
+        }
+    ]
+    set_faq_cache(initial_faq)
+
+    logger.info(
+        f"FAQ service ready (update every {faq_update_interval} minutes, top {faq_top_chunks} chunks)"
+    )
+
+    # Автоматически загружаем QA.xlsx если база знаний пустая
+    logger.info("Checking if knowledge base needs initial data...")
+    try:
+        from app.rag.faq_service import load_qa_xlsx_if_empty
+        import os
+
+        qa_file_path = os.path.join(os.getcwd(), "QA.xlsx")
+        async with KnowledgeSessionLocal() as session:
+            loaded_count = await load_qa_xlsx_if_empty(session, qa_file_path)
+            if loaded_count > 0:
+                logger.info(
+                    f"✅ Knowledge base initialized with {loaded_count} QA pairs from QA.xlsx"
+                )
+    except Exception as e:
+        logger.error(f"❌ Error loading initial QA data: {e}")
 
     # Инициализируем симулятор
     simulator_service = SimulatorService(rag_service)
@@ -418,6 +462,46 @@ async def simulator(request: Request):
 async def faq_page(request: Request):
     """Публичная страница FAQ для пользователей"""
     return templates.TemplateResponse("faq.html", {"request": request})
+
+
+@app.get("/api/faq")
+async def get_faq():
+    """Получить список FAQ вопросов (обновляется автоматически на основе популярных запросов)"""
+    try:
+        from app.rag.faq_service import get_faq_cache, start_faq_update_background
+
+        # Запускаем обновление в фоне если нужно (неблокирующе)
+        rag_config = load_rag_config()
+        update_started = start_faq_update_background(rag_config)
+        if update_started:
+            logger.info("[API] FAQ background update started")
+
+        # Сразу возвращаем текущий кэшированный FAQ (не ждём обновления)
+        faq_items = get_faq_cache()
+
+        logger.info(f"[API] FAQ requested, returning {len(faq_items)} items")
+
+        return {"items": faq_items, "count": len(faq_items)}
+    except Exception as e:
+        logger.error(f"[API] Error getting FAQ: {e}")
+        # Возвращаем пустой список в случае ошибки
+        return {"items": [], "count": 0}
+
+
+@app.get("/api/faq/search")
+async def search_faq(q: str = ""):
+    """Поиск по FAQ"""
+    try:
+        from app.rag.faq_service import search_faq
+
+        results = await search_faq(q)
+
+        logger.info(f"[API] FAQ search '{q}' returned {len(results)} results")
+
+        return {"items": results, "count": len(results), "query": q}
+    except Exception as e:
+        logger.error(f"[API] Error searching FAQ: {e}")
+        return {"items": [], "count": 0, "query": q}
 
 
 @app.get("/api/dashboard/stats")

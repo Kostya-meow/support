@@ -773,14 +773,21 @@ def create_dispatcher(
         user_name = (
             message.from_user.first_name if message.from_user else "пользователь"
         )
+
+        # Получаем base_url с автоматическим определением (ngrok/env/config)
+        from app.utils import get_base_url
+
+        base_url = get_base_url()
+
         telegram_responses = load_telegram_responses()
         greeting = telegram_responses.get("start_greeting", "").format(
-            user_name=user_name
+            user_name=user_name, base_url=base_url
         )
 
         if not greeting.strip():
             greeting = (
-                f"👋 Привет, {user_name}! Я бот технической поддержки. Чем могу помочь?"
+                f"👋 Привет, {user_name}! Я бот технической поддержки. Чем могу помочь?\n\n"
+                f'💡 Посмотрите наш <a href="{base_url}/faq">FAQ с ответами на популярные вопросы</a>'
             )
 
         await message.answer(greeting, parse_mode="HTML")

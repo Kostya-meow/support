@@ -2,6 +2,19 @@ llm:
   # Убирать ли теги <thinking>...</thinking> из ответов
   strip_thinking_tags: true
 
+# === FAQ Configuration ===
+faq:
+  # Как часто обновлять FAQ (в минутах)
+  update_interval_minutes: 1
+  
+  # Сколько самых популярных чанков использовать для генерации FAQ
+  top_chunks_count: 10
+  
+  # Описание: FAQ генерируется автоматически на основе популярных запросов к базе знаний.
+  # При каждом поиске (search_knowledge_base) отслеживаются использованные чанки.
+  # Каждые update_interval_minutes минут берутся top_chunks_count самых популярных чанков
+  # и через LLM генерируется топ-10 вопросов/ответов для FAQ страницы.
+
 # === Agent Configuration ===
 agent:
   # Категории запросов

@@ -304,6 +304,12 @@ async def search_knowledge_base(query: str, suggest_similar: bool = False) -> st
 
             print(f"[AGENT] Найдено {len(all_results)} результатов")
 
+            # Отслеживаем использование топ-3 чанков для FAQ
+            from app.rag.faq_service import track_chunk_usage
+
+            for result in all_results[:3]:
+                track_chunk_usage(result["id"], result["content"])
+
             # Формируем обычный текстовый ответ из топ-3 результатов
             response_parts = []
             for i, result in enumerate(all_results[:3], 1):
