@@ -20,6 +20,29 @@ _conversation_id_var: contextvars.ContextVar[Optional[int]] = contextvars.Contex
 _action_queue: deque = deque()
 _action_queue_lock = threading.Lock()
 
+# Глобальная модель SentenceTransformer (инициализируется один раз)
+_sentence_transformer = None
+_sentence_transformer_lock = threading.Lock()
+
+
+def get_sentence_transformer():
+    """Получить глобальный экземпляр SentenceTransformer (ленивая инициализация)"""
+    global _sentence_transformer
+
+    if _sentence_transformer is None:
+        with _sentence_transformer_lock:
+            # Double-check locking pattern
+            if _sentence_transformer is None:
+                print("[TRANSFORMER] Инициализация SentenceTransformer (один раз)...")
+                from sentence_transformers import SentenceTransformer
+
+                _sentence_transformer = SentenceTransformer(
+                    "sentence-transformers/all-MiniLM-L6-v2"
+                )
+                print("[TRANSFORMER] ✅ SentenceTransformer готов к использованию")
+
+    return _sentence_transformer
+
 
 def set_current_conversation_id(conversation_id: int):
     """Установить ID текущего разговора для async контекста"""
@@ -35,7 +58,7 @@ def get_current_conversation_id() -> Optional[int]:
 
 
 def _send_action_to_telegram(action_text: str) -> None:
-    """Отправить действие агента в Telegram (через очередь)
+    """Отправить действие агента в Telegram (добавить в очередь для немедленной обработки)
 
     Args:
         action_text: Описание действия (например, "🔍 Поиск в базе знаний")
@@ -46,22 +69,41 @@ def _send_action_to_telegram(action_text: str) -> None:
             print(f"[ACTION] Пропускаем отправку действия - нет conversation_id")
             return
 
-        # Добавляем действие в очередь для отложенной обработки
+        print(f"[ACTION] Добавляю действие в очередь: {action_text}")
+
+        # Добавляем действие в очередь
         with _action_queue_lock:
             _action_queue.append(
                 {"conversation_id": conversation_id, "action_text": action_text}
             )
-            print(f"[ACTION] Действие добавлено в очередь: {action_text}")
+
+        # Планируем обработку очереди в главном loop
+        import asyncio
+
+        try:
+            # Пытаемся получить главный loop и запланировать обработку
+            from app.main import _main_loop
+
+            if _main_loop and _main_loop.is_running():
+                # Планируем обработку через call_soon_threadsafe
+                _main_loop.call_soon_threadsafe(
+                    lambda: asyncio.ensure_future(
+                        process_pending_actions(), loop=_main_loop
+                    )
+                )
+                print(f"[ACTION] Запланирована обработка в главном loop")
+        except Exception as schedule_error:
+            print(f"[ACTION] Не удалось запланировать обработку: {schedule_error}")
 
     except Exception as e:
-        print(f"[ACTION ERROR] Не удалось добавить действие в очередь: {e}")
-        logger.warning(f"Failed to queue agent action: {e}")
+        print(f"[ACTION ERROR] Не удалось добавить действие: {e}")
+        logger.warning(f"Failed to queue action: {e}")
 
 
 async def process_pending_actions():
-    """Обработать все ожидающие действия из очереди
+    """Обработать все ожидающие действия из очереди немедленно
 
-    Вызывается после завершения работы агента для отправки всех накопленных действий.
+    Вызывается автоматически при добавлении действий и после завершения работы агента.
     """
     from app.bots import send_agent_action_to_telegram
     from app.db.database import TicketsSessionLocal
@@ -78,7 +120,7 @@ async def process_pending_actions():
     if not actions_to_process:
         return
 
-    print(f"[ACTION] Обработка {len(actions_to_process)} отложенных действий")
+    print(f"[ACTION] Обработка {len(actions_to_process)} действий")
 
     # Обрабатываем каждое действие
     for action_data in actions_to_process:
@@ -115,13 +157,11 @@ async def process_pending_actions():
 
             # Отправляем действие в Telegram
             await send_agent_action_to_telegram(chat_id, action_text)
-            print(
-                f"[ACTION] ✅ Отправлено действие в Telegram chat {chat_id}: {action_text}"
-            )
+            print(f"[ACTION] ✅ Отправлено: {action_text}")
 
         except Exception as e:
-            print(f"[ACTION ERROR] Ошибка при обработке действия: {e}")
-            logger.warning(f"Failed to process agent action: {e}")
+            print(f"[ACTION ERROR] Ошибка обработки действия: {e}")
+            logger.warning(f"Failed to process action: {e}")
 
 
 # Глобальное хранилище для передачи данных между агентом и ботом
@@ -197,11 +237,10 @@ async def search_knowledge_base(query: str, suggest_similar: bool = False) -> st
     try:
         from app.db.database import KnowledgeSessionLocal
         from app.db import tickets_crud as crud
-        from sentence_transformers import SentenceTransformer
         import numpy as np
 
-        # Инициализируем модель для семантического поиска
-        model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        # Получаем глобальный экземпляр модели (быстро, инициализируется только один раз)
+        model = get_sentence_transformer()
 
         async with KnowledgeSessionLocal() as session:
             # Загружаем все чанки

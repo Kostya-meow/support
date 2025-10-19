@@ -104,7 +104,7 @@ async def send_agent_action_to_telegram(chat_id: int, action_text: str) -> None:
 
         # Сохраняем в БД (автоматически попадёт в веб через broadcast)
         async with _session_maker() as session:
-            from app.services.realtime import connection_manager
+            from app.main import connection_manager
 
             ticket = await crud.get_open_ticket_by_chat_id(session, chat_id)
             if ticket:

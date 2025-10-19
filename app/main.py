@@ -115,6 +115,9 @@ logger = logging.getLogger(__name__)
 
 connection_manager = ConnectionManager()
 
+# Глобальная ссылка на главный event loop для использования в agent_tools
+_main_loop = None
+
 
 templates = Jinja2Templates(directory="app/templates")
 
@@ -176,7 +179,16 @@ async def _broadcast_conversations_update(
 
 
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    global _main_loop
+
     logger.info("🚀 Starting application lifespan...")
+
+    # Сохраняем ссылку на главный event loop
+    import asyncio
+
+    _main_loop = asyncio.get_running_loop()
+    logger.info(f"Main event loop stored: {_main_loop}")
+
     await init_db()
     app.state.connection_manager = connection_manager
 
@@ -192,6 +204,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     rag_service = get_hybrid_rag_service()
     await rag_service.prepare()
     app.state.rag = rag_service
+
+    # Прогреваем SentenceTransformer для agent_tools (ленивая инициализация)
+    logger.info("Warming up SentenceTransformer for agent tools...")
+    from app.rag.agent_tools import get_sentence_transformer
+
+    get_sentence_transformer()  # Инициализирует модель один раз
+    logger.info("SentenceTransformer ready")
 
     # Инициализируем симулятор
     simulator_service = SimulatorService(rag_service)
