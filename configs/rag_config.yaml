@@ -5,7 +5,7 @@ llm:
 # === FAQ Configuration ===
 faq:
   # Как часто обновлять FAQ (в минутах)
-  update_interval_minutes: 1
+  update_interval_minutes: 3
   
   # Сколько самых популярных чанков использовать для генерации FAQ
   top_chunks_count: 10

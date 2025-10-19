@@ -1222,7 +1222,12 @@
     cursor: not-allowed;
   }
 
-  .dashboard-page { display:flex; flex-direction:column; }
+  .dashboard-page { 
+    display:flex; 
+    flex-direction:column;
+    overflow: hidden !important; /* отключаем overflow на main-content для dashboard */
+    height: calc(100vh - 64px - 45px); /* фиксируем высоту */
+  }
   .dashboard-shell {
     flex:1;
     background: transparent;
