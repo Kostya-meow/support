@@ -463,8 +463,6 @@ def _classify_request_internal(
         print(
             f"[AGENT ACTION] Классификация диалога через LLM (длина: {len(dialogue_history)} символов)"
         )
-        # Отправляем действие в Telegram
-        _send_action_to_telegram("🏷️ Классификация запроса")
     elif text:
         analysis_text = text
         print(f"[AGENT ACTION] Классификация запроса через LLM: '{text[:50]}...'")
@@ -583,6 +581,9 @@ def _classify_request_internal(
         print(f"[AGENT] Диалог классифицирован как: {result_categories}")
         logger.info(f"Request classified as: {result_categories}")
 
+        # Отправляем действие с результатом в Telegram
+        _send_action_to_telegram(f"🏷️ Классификация: {result_categories}")
+
         return f"Классификация проблемы: {result_categories}"
 
     except Exception as e:
@@ -604,9 +605,6 @@ def _set_priority_internal(dialogue_history: str) -> str:
     print(
         f"[AGENT ACTION] Определение приоритета диалога через LLM (длина: {len(dialogue_history)} символов)"
     )
-
-    # Отправляем действие в Telegram
-    _send_action_to_telegram("⚡ Определение приоритета заявки")
 
     try:
         from app.rag.service import get_llm_client
@@ -655,6 +653,12 @@ def _set_priority_internal(dialogue_history: str) -> str:
 
         print(f"[AGENT] Приоритет диалога определен как: {priority}")
         logger.info(f"Dialogue priority set to: {priority}")
+
+        # Отправляем действие с результатом в Telegram
+        priority_labels = {"low": "низкий", "medium": "средний", "high": "высокий"}
+        _send_action_to_telegram(
+            f"⚡ Установлен приоритет: {priority_labels.get(priority, priority)}"
+        )
 
         return priority
 
@@ -814,12 +818,6 @@ def create_it_ticket(problem_description: str, location: str = "не указа�
     print(f"[IT TICKET] Проблема: {problem_description}")
     print(f"[IT TICKET] Локация: {location}")
 
-    # Отправляем действие в Telegram
-    if location and location != "не указано":
-        _send_action_to_telegram(f"📝 Создание заявки на выезд IT-специалиста")
-    else:
-        _send_action_to_telegram(f"📋 Подготовка черновика заявки IT")
-
     conversation_id = get_current_conversation_id()
     print(f"[IT TICKET] conversation_id: {conversation_id}")
 
@@ -864,6 +862,12 @@ def create_it_ticket(problem_description: str, location: str = "не указа�
                 # Если локация не указана - создаем ЧЕРНОВИК
                 if location == "не указано" or not location or location.strip() == "":
                     print("[IT TICKET] Создание черновика - запрос локации")
+
+                    # Отправляем действие в Telegram
+                    _send_action_to_telegram(
+                        f"📋 Подготовка заявки IT (требуется локация)"
+                    )
+
                     result_holder["result"] = (
                         "✅ Заявка на выезд специалиста будет создана!\n\n"
                         "📍 Пожалуйста, уточните местоположение:\n"
@@ -903,6 +907,13 @@ def create_it_ticket(problem_description: str, location: str = "не указа�
                 logger.info(
                     f"IT ticket created: {ticket_number}, specialist: {assigned_specialist}, "
                     f"arrival in {arrival_minutes} min, location: {location}"
+                )
+
+                # Отправляем действие с деталями в Telegram
+                _send_action_to_telegram(
+                    f"📝 Создана IT-заявка #{ticket_number}\n"
+                    f"👤 Специалист: {assigned_specialist}\n"
+                    f"⏰ Прибытие: ~{arrival_minutes} мин"
                 )
 
                 result_holder["result"] = (
