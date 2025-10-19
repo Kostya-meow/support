@@ -35,6 +35,7 @@ class RAGAgent:
             call_operator,
             get_system_status,
             save_case_to_knowledge_base,
+            get_support_report,
         )
 
         # Настройка модели
@@ -61,6 +62,7 @@ class RAGAgent:
                 call_operator,
                 get_system_status,
                 save_case_to_knowledge_base,
+                get_support_report,
             ],
             instructions=system_instructions,
             debug_mode=False,

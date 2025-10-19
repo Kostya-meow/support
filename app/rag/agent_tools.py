@@ -997,6 +997,364 @@ def get_system_status() -> str:
 
 
 @tool
+async def get_support_report() -> str:
+    """Получить отчёт о текущем состоянии службы поддержки.
+
+    Генерирует подробный отчёт с информацией о:
+    - Общем количестве заявок (всего, за день, за неделю)
+    - Среднем времени решения проблем
+    - Распределении по статусам (открыто, в работе, закрыто, архивировано)
+    - Распределении по приоритетам (низкий, средний, высокий)
+    - Специальных метриках (с IT-специалистом, ожидают оператора)
+    - Топ-5 категорий проблем
+    - Самых старых активных заявках (топ-3)
+    - Анализе тональности случайных диалогов (3 шт)
+
+    КОГДА ИСПОЛЬЗОВАТЬ:
+    - Пользователь спрашивает "какая ситуация в поддержке?"
+    - Пользователь хочет узнать "сколько заявок в очереди?"
+    - Запрос отчёта о работе службы поддержки
+    - Вопросы о загруженности системы
+    - "Покажи статистику", "Дай отчёт"
+
+    Возвращает форматированный текстовый отчёт со всеми метриками.
+    Если каких-то данных нет, отчёт показывает соответствующее сообщение.
+    """
+    import datetime
+    from datetime import timedelta
+
+    print(f"[AGENT ACTION] Генерация отчёта о службе поддержки")
+
+    # Отправляем действие в Telegram
+    _send_action_to_telegram("📊 Генерация отчёта о службе поддержки...")
+
+    try:
+        from app.db import tickets_crud as crud
+        from app.db.models import Ticket, TicketStatus, Message
+        from app.bots.telegram_bot import _session_maker
+        from sqlalchemy import select, func, and_
+
+        if not _session_maker:
+            print("[REPORT ERROR] session_maker не инициализирован")
+            return "⚠️ Ошибка: БД не инициализирована"
+
+        async with _session_maker() as session:
+            # 1. Общее количество заявок
+            total_result = await session.execute(
+                select(func.count()).select_from(Ticket)
+            )
+            total_tickets = total_result.scalar_one() or 0
+
+            # 2. Статистика по статусам
+            status_stats = {}
+            for status in [
+                TicketStatus.OPEN,
+                TicketStatus.IN_PROGRESS,
+                TicketStatus.CLOSED,
+                TicketStatus.ARCHIVED,
+            ]:
+                result = await session.execute(
+                    select(func.count())
+                    .select_from(Ticket)
+                    .where(Ticket.status == status)
+                )
+                status_stats[status.value] = result.scalar_one() or 0
+
+            # 3. Статистика по приоритетам
+            priority_stats = {}
+            for priority in ["low", "medium", "high"]:
+                result = await session.execute(
+                    select(func.count())
+                    .select_from(Ticket)
+                    .where(Ticket.priority == priority)
+                )
+                priority_stats[priority] = result.scalar_one() or 0
+
+            # 4. Заявки за сегодня
+            today = datetime.datetime.utcnow().replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            today_result = await session.execute(
+                select(func.count())
+                .select_from(Ticket)
+                .where(Ticket.created_at >= today)
+            )
+            tickets_today = today_result.scalar_one() or 0
+
+            # 5. Заявки за последние 7 дней
+            week_ago = datetime.datetime.utcnow() - timedelta(days=7)
+            week_result = await session.execute(
+                select(func.count())
+                .select_from(Ticket)
+                .where(Ticket.created_at >= week_ago)
+            )
+            tickets_this_week = week_result.scalar_one() or 0
+
+            # 6. Заявки с IT-специалистом
+            it_tickets_result = await session.execute(
+                select(func.count())
+                .select_from(Ticket)
+                .where(
+                    and_(
+                        Ticket.it_ticket_number.isnot(None),
+                        Ticket.status != TicketStatus.CLOSED,
+                    )
+                )
+            )
+            active_it_tickets = it_tickets_result.scalar_one() or 0
+
+            # 7. Заявки ожидающие оператора
+            operator_requested_result = await session.execute(
+                select(func.count())
+                .select_from(Ticket)
+                .where(
+                    and_(
+                        Ticket.operator_requested == True,
+                        Ticket.status != TicketStatus.CLOSED,
+                    )
+                )
+            )
+            operator_requests = operator_requested_result.scalar_one() or 0
+
+            # 8. Среднее время решения проблем (для закрытых заявок)
+            closed_tickets_result = await session.execute(
+                select(Ticket).where(
+                    and_(
+                        Ticket.status == TicketStatus.CLOSED,
+                        Ticket.closed_at.isnot(None),
+                    )
+                )
+            )
+            closed_tickets = closed_tickets_result.scalars().all()
+
+            avg_resolution_time = None
+            if closed_tickets:
+                total_time = sum(
+                    [
+                        (ticket.closed_at - ticket.created_at).total_seconds()
+                        for ticket in closed_tickets
+                    ]
+                )
+                avg_seconds = total_time / len(closed_tickets)
+                avg_hours = int(avg_seconds / 3600)
+                avg_minutes = int((avg_seconds % 3600) / 60)
+                avg_resolution_time = f"{avg_hours}ч {avg_minutes}м"
+
+            # 9. Топ категорий проблем
+            categories_result = await session.execute(
+                select(Ticket.classification, func.count())
+                .where(Ticket.classification.isnot(None))
+                .group_by(Ticket.classification)
+                .order_by(func.count().desc())
+                .limit(5)
+            )
+            top_categories = categories_result.all()
+
+            print(f"[REPORT] Найдено категорий: {len(top_categories)}")
+            if top_categories:
+                for cat, count in top_categories:
+                    print(f"[REPORT]   - {cat}: {count} заявок")
+
+            # 10. Случайные 3 диалога для анализа тональности (если есть закрытые)
+            import random
+
+            sample_tickets_result = await session.execute(
+                select(Ticket)
+                .where(Ticket.status == TicketStatus.CLOSED)
+                .order_by(func.random())
+                .limit(3)
+            )
+            sample_tickets = sample_tickets_result.scalars().all()
+
+            print(
+                f"[REPORT] Найдено закрытых заявок для анализа: {len(sample_tickets)}"
+            )
+
+            # Загружаем сообщения для sample_tickets
+            sample_dialogs = []
+            for ticket in sample_tickets:
+                messages_result = await session.execute(
+                    select(Message)
+                    .where(Message.ticket_id == ticket.id)
+                    .order_by(Message.created_at)
+                )
+                messages = messages_result.scalars().all()
+                if messages:
+                    sample_dialogs.append(
+                        {
+                            "ticket_id": ticket.id,
+                            "classification": ticket.classification or "Без категории",
+                            "messages": messages,
+                        }
+                    )
+
+            print(f"[REPORT] Сформировано диалогов для анализа: {len(sample_dialogs)}")
+
+            # 11. Самые старые открытые заявки
+            oldest_tickets_result = await session.execute(
+                select(Ticket)
+                .where(Ticket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]))
+                .order_by(Ticket.created_at)
+                .limit(3)
+            )
+            oldest_tickets = oldest_tickets_result.scalars().all()
+
+            # Формируем отчёт
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            report_lines = [
+                f"📊 ОТЧЁТ О СЛУЖБЕ ПОДДЕРЖКИ",
+                f"⏰ Сформирован: {current_time}",
+                f"",
+                f"📈 ОБЩАЯ СТАТИСТИКА:",
+                f"   • Всего заявок: {total_tickets}",
+                f"   • За сегодня: {tickets_today}",
+                f"   • За неделю: {tickets_this_week}",
+            ]
+
+            # Среднее время решения
+            if avg_resolution_time:
+                report_lines.append(
+                    f"   • Среднее время решения: {avg_resolution_time}"
+                )
+            else:
+                report_lines.append(f"   • Среднее время решения: данных нет")
+
+            report_lines.extend(
+                [
+                    f"",
+                    f"📋 ПО СТАТУСАМ:",
+                    f"   • Открыто: {status_stats.get('open', 0)}",
+                    f"   • В работе: {status_stats.get('in_progress', 0)}",
+                    f"   • Закрыто: {status_stats.get('closed', 0)}",
+                    f"   • Архивировано: {status_stats.get('archived', 0)}",
+                    f"",
+                    f"⚡ ПО ПРИОРИТЕТАМ:",
+                    f"   • Высокий: {priority_stats.get('high', 0)}",
+                    f"   • Средний: {priority_stats.get('medium', 0)}",
+                    f"   • Низкий: {priority_stats.get('low', 0)}",
+                    f"",
+                    f"🔧 СПЕЦИАЛЬНЫЕ:",
+                    f"   • С IT-специалистом: {active_it_tickets}",
+                    f"   • Ожидают оператора: {operator_requests}",
+                ]
+            )
+
+            # Топ категорий проблем
+            if top_categories:
+                report_lines.append(f"")
+                report_lines.append(f"🏷️ ТОП КАТЕГОРИЙ ПРОБЛЕМ:")
+                for category, count in top_categories:
+                    report_lines.append(f"   • {category}: {count} заявок")
+            else:
+                report_lines.append(f"")
+                if total_tickets > 0:
+                    report_lines.append(
+                        f"🏷️ ТОП КАТЕГОРИЙ ПРОБЛЕМ: заявки не классифицированы"
+                    )
+                else:
+                    report_lines.append(f"🏷️ ТОП КАТЕГОРИЙ ПРОБЛЕМ: данных нет")
+
+            # Добавляем самые старые заявки
+            if oldest_tickets:
+                report_lines.append(f"")
+                report_lines.append(f"⏳ САМЫЕ СТАРЫЕ АКТИВНЫЕ ЗАЯВКИ:")
+                for ticket in oldest_tickets:
+                    age = datetime.datetime.utcnow() - ticket.created_at
+                    hours = int(age.total_seconds() / 3600)
+                    priority_emoji = (
+                        "🔴"
+                        if ticket.priority == "high"
+                        else "🟡" if ticket.priority == "medium" else "🟢"
+                    )
+                    classification = ticket.classification or "Без категории"
+                    report_lines.append(
+                        f"   {priority_emoji} #{ticket.id} - {classification[:30]} (висит {hours}ч)"
+                    )
+            else:
+                report_lines.append(f"")
+                report_lines.append(
+                    f"⏳ САМЫЕ СТАРЫЕ АКТИВНЫЕ ЗАЯВКИ: нет активных заявок"
+                )
+
+            # Анализ тональности случайных диалогов
+            if sample_dialogs:
+                report_lines.append(f"")
+                report_lines.append(f"💬 АНАЛИЗ СЛУЧАЙНЫХ ДИАЛОГОВ:")
+
+                # Простой анализ тональности
+                for dialog in sample_dialogs:
+                    # Собираем текст диалога
+                    user_messages = [
+                        m.text for m in dialog["messages"] if m.sender == "user"
+                    ]
+
+                    # Простой анализ по ключевым словам
+                    positive_words = [
+                        "спасибо",
+                        "помогло",
+                        "работает",
+                        "заработало",
+                        "отлично",
+                        "хорошо",
+                        "решили",
+                    ]
+                    negative_words = [
+                        "не работает",
+                        "плохо",
+                        "ошибка",
+                        "проблема",
+                        "не помогло",
+                        "всё ещё",
+                    ]
+
+                    all_text = " ".join(user_messages).lower()
+                    positive_count = sum(
+                        1 for word in positive_words if word in all_text
+                    )
+                    negative_count = sum(
+                        1 for word in negative_words if word in all_text
+                    )
+
+                    if positive_count > negative_count:
+                        sentiment = "😊 Позитивная"
+                    elif negative_count > positive_count:
+                        sentiment = "😟 Негативная"
+                    else:
+                        sentiment = "😐 Нейтральная"
+
+                    msg_count = len(dialog["messages"])
+                    report_lines.append(
+                        f"   • #{dialog['ticket_id']} ({dialog['classification'][:20]}): {sentiment}, {msg_count} сообщ."
+                    )
+            else:
+                report_lines.append(f"")
+                if status_stats.get("closed", 0) > 0:
+                    report_lines.append(
+                        f"💬 АНАЛИЗ СЛУЧАЙНЫХ ДИАЛОГОВ: закрытые заявки без сообщений"
+                    )
+                else:
+                    report_lines.append(
+                        f"💬 АНАЛИЗ СЛУЧАЙНЫХ ДИАЛОГОВ: нет закрытых заявок"
+                    )
+
+            report = "\n".join(report_lines)
+
+            print(f"[REPORT] Отчёт сформирован: {len(report)} символов")
+
+            # Отправляем финальное действие
+            _send_action_to_telegram("📊 Отчёт о службе поддержки готов")
+
+            return report
+
+    except Exception as e:
+        logger.error(f"Ошибка при генерации отчёта: {e}")
+        print(f"[REPORT ERROR] {e}")
+        _send_action_to_telegram("❌ Ошибка при генерации отчёта")
+        return f"⚠️ Ошибка при генерации отчёта: {str(e)}"
+
+
+@tool
 async def save_case_to_knowledge_base(
     problem_description: str = None, solution: str = None
 ) -> str:
