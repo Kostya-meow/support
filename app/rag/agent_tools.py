@@ -996,6 +996,192 @@ def get_system_status() -> str:
         return "Возникли проблемы с проверкой статуса системы."
 
 
+@tool
+async def save_case_to_knowledge_base(
+    problem_description: str = None, solution: str = None
+) -> str:
+    """Сохранить успешный кейс в базу знаний для будущего использования.
+
+    КОГДА ИСПОЛЬЗОВАТЬ:
+    - Когда ты успешно решил проблему пользователя
+    - Пользователь подтвердил что проблема решена (сказал "спасибо", "заработало", "помогло")
+    - Решение оказалось полезным и может помочь другим
+    - Проблема и решение достаточно конкретные и понятные
+    - НЕ используй для общих вопросов или неполных решений
+
+    Параметры (ОПЦИОНАЛЬНЫЕ):
+    - problem_description: Краткое описание проблемы (если не указано - сгенерируется автоматически из диалога)
+    - solution: Пошаговое решение (если не указано - сгенерируется автоматически из диалога)
+
+    ВАЖНО: Если пользователь попросил "добавь в базу" или "сохрани кейс" -
+    вызывай БЕЗ параметров! Инструмент сам проанализирует диалог и создаст саммари.
+
+    Пример использования:
+    1. С параметрами: save_case_to_knowledge_base("Принтер не печатает", "1. Проверить бумагу...")
+    2. БЕЗ параметров (автоматически): save_case_to_knowledge_base()
+
+    Возвращает подтверждение о сохранении кейса.
+    """
+    import datetime
+
+    print(f"[AGENT ACTION] Сохранение кейса в базу знаний")
+
+    # Отправляем действие в Telegram (начало процесса)
+    _send_action_to_telegram("💾 Сохранение кейса в базу знаний...")
+
+    # Если параметры не указаны - будем генерировать из диалога
+    if problem_description is None or solution is None:
+        print(
+            f"[SAVE CASE] Параметры не указаны - буду генерировать саммари из диалога"
+        )
+    else:
+        print(f"[SAVE CASE] Проблема: {problem_description[:100]}...")
+        print(f"[SAVE CASE] Решение: {solution[:100]}...")
+
+    try:
+        from app.db.database import KnowledgeSessionLocal
+        from app.db import tickets_crud as crud
+        from app.bots.telegram_bot import _session_maker
+
+        # Получаем описание и решение
+        final_problem = problem_description
+        final_solution = solution
+
+        # Если не указаны - генерируем из диалога
+        if final_problem is None or final_solution is None:
+            conversation_id = get_current_conversation_id()
+
+            if not conversation_id:
+                print("[SAVE CASE ERROR] conversation_id не найден")
+                return "⚠️ Ошибка: не удалось определить текущий диалог"
+
+            if not _session_maker:
+                print("[SAVE CASE ERROR] session_maker не инициализирован")
+                return "⚠️ Ошибка: БД не инициализирована"
+
+            # Получаем историю диалога из БД через crud функцию
+            async with _session_maker() as session:
+                ticket_data = await crud.get_ticket_with_messages(
+                    session, conversation_id
+                )
+
+                if not ticket_data:
+                    print(f"[SAVE CASE ERROR] Ticket {conversation_id} не найден")
+                    return "⚠️ Ошибка: диалог не найден"
+
+                ticket, messages = ticket_data
+
+                # Формируем историю диалога
+                dialogue_parts = []
+                for msg in messages:
+                    role = (
+                        "Пользователь"
+                        if msg.sender == "user"
+                        else "Бот" if msg.sender == "bot" else "Оператор"
+                    )
+                    dialogue_parts.append(f"{role}: {msg.text}")
+
+                dialogue_history = "\n".join(dialogue_parts)
+                print(
+                    f"[SAVE CASE] Получена история диалога: {len(dialogue_history)} символов"
+                )
+
+            # Генерируем саммари через LLM
+            from app.rag.service import get_llm_client
+            import yaml
+
+            # Загружаем конфигурацию
+            with open("configs/rag_config.yaml", "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+
+            # Промпт для генерации саммари
+            summary_prompt = f"""Проанализируй диалог технической поддержки и создай краткое саммари для базы знаний.
+
+ДИАЛОГ:
+{dialogue_history}
+
+Создай:
+1. ПРОБЛЕМА: Краткое описание проблемы в 1-2 предложениях (что не работало, какие симптомы)
+2. РЕШЕНИЕ: Пошаговая инструкция как решить эту проблему (конкретные действия)
+
+Формат ответа:
+ПРОБЛЕМА: [описание]
+РЕШЕНИЕ:
+[пошаговая инструкция]
+
+Будь конкретным и практичным. Описание должно помочь другим пользователям с похожей проблемой."""
+
+            llm_client = get_llm_client()
+
+            print("[SAVE CASE] Генерирую саммари через LLM...")
+            response = llm_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": summary_prompt}],
+                max_tokens=500,
+                temperature=0.3,
+            )
+
+            summary_text = response.choices[0].message.content.strip()
+            print(f"[SAVE CASE] LLM саммари получено: {len(summary_text)} символов")
+
+            # Парсим ответ LLM
+            if "ПРОБЛЕМА:" in summary_text and "РЕШЕНИЕ:" in summary_text:
+                parts = summary_text.split("РЕШЕНИЕ:")
+                final_problem = parts[0].replace("ПРОБЛЕМА:", "").strip()
+                final_solution = parts[1].strip()
+                print(f"[SAVE CASE] Распарсено - Проблема: {final_problem[:50]}...")
+                print(f"[SAVE CASE] Распарсено - Решение: {final_solution[:50]}...")
+            else:
+                # Используем весь текст как есть
+                final_problem = "Кейс из диалога"
+                final_solution = summary_text
+
+        # Форматируем кейс для базы знаний
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d")
+        case_content = f"""ПРОБЛЕМА: {final_problem}
+
+РЕШЕНИЕ:
+{final_solution}
+
+(Кейс добавлен ботом {timestamp})"""
+
+        # Создаём embedding для кейса
+        model = get_sentence_transformer()
+        embedding_vector = model.encode(case_content)
+        embedding_bytes = embedding_vector.tobytes()
+
+        async with KnowledgeSessionLocal() as session:
+            # Добавляем кейс в базу знаний
+            chunk = await crud.add_document_chunk(
+                session=session,
+                content=case_content,
+                source_file=f"bot_case_{timestamp}.txt",
+                chunk_index=0,
+                start_char=0,
+                end_char=len(case_content),
+                embedding=embedding_bytes,
+                chunk_metadata=f'{{"source": "bot", "type": "solved_case", "date": "{timestamp}"}}',
+            )
+
+            logger.info(f"Case saved to knowledge base: chunk_id={chunk.id}")
+            print(f"[SAVE CASE] ✅ Кейс сохранён с ID: {chunk.id}")
+
+            # Отправляем действие в Telegram
+            _send_action_to_telegram(f"💾 Кейс сохранён в базу знаний (#{chunk.id})")
+
+            return (
+                f"✅ Кейс успешно сохранён в базу знаний!\n"
+                f"ID записи: {chunk.id}\n\n"
+                f"Теперь этот кейс будет доступен при поиске решений похожих проблем."
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении кейса: {e}")
+        print(f"[SAVE CASE ERROR] {e}")
+        _send_action_to_telegram(f"❌ Ошибка при сохранении кейса")
+        return f"⚠️ Ошибка при сохранении кейса: {str(e)}"
+
+
 def should_update_classification_and_priority(
     current_classification: str,
     current_priority: str,

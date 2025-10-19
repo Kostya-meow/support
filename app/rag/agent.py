@@ -34,6 +34,7 @@ class RAGAgent:
             create_it_ticket,
             call_operator,
             get_system_status,
+            save_case_to_knowledge_base,
         )
 
         # Настройка модели
@@ -59,6 +60,7 @@ class RAGAgent:
                 create_it_ticket,
                 call_operator,
                 get_system_status,
+                save_case_to_knowledge_base,
             ],
             instructions=system_instructions,
             debug_mode=False,
